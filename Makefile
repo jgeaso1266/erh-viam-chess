@@ -28,7 +28,7 @@ update:
 test:
 	go test ./...
 
-module.tar.gz: meta.json $(MODULE_BINARY)
+module.tar.gz: test meta.json $(MODULE_BINARY)
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif

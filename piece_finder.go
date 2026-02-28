@@ -31,6 +31,7 @@ import (
 var PieceFinderModel = family.WithModel("piece-finder")
 
 const minPieceSize = 25.0
+const squareInset = 10.0
 
 func init() {
 	resource.RegisterService(vision.API, PieceFinderModel,
@@ -154,7 +155,7 @@ func computeSquareBounds(corners []image.Point, col, row int) image.Rectangle {
 	// Add inset to avoid capturing border lines between squares
 	// and to account for depth/RGB alignment issues
 	// Shrink by 10 pixels on each side to stay well within the square
-	inset := 10
+	inset := min(squareInset, (bounds.Max.X-bounds.Min.X)/10)
 	bounds.Min.X += inset
 	bounds.Min.Y += inset
 	bounds.Max.X -= inset

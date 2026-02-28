@@ -29,11 +29,11 @@ func TestComputeSquareBounds(t *testing.T) {
 	}
 
 	res := computeSquareBounds(corners, 0, 0)
-	test.That(t, res.Min.X, test.ShouldEqual, 0)
-	test.That(t, res.Min.Y, test.ShouldEqual, 0)
+	test.That(t, res.Min.X, test.ShouldEqual, 1)
+	test.That(t, res.Min.Y, test.ShouldEqual, 1)
 
-	test.That(t, res.Max.X, test.ShouldEqual, 10)
-	test.That(t, res.Max.Y, test.ShouldEqual, 10)
+	test.That(t, res.Max.X, test.ShouldEqual, 9)
+	test.That(t, res.Max.Y, test.ShouldEqual, 9)
 
 	corners = []image.Point{
 		{360, 3},
@@ -43,12 +43,12 @@ func TestComputeSquareBounds(t *testing.T) {
 	}
 
 	res = computeSquareBounds(corners, 0, 0)
-	test.That(t, res.Min.X, test.ShouldEqual, 360)
-	test.That(t, res.Min.Y, test.ShouldEqual, 3)
+	test.That(t, res.Min.X, test.ShouldEqual, 366)
+	test.That(t, res.Min.Y, test.ShouldEqual, 9)
 
 	res = computeSquareBounds(corners, 0, 6)
-	test.That(t, res.Min.X, test.ShouldEqual, 283)
-	test.That(t, res.Min.Y, test.ShouldEqual, 510)
+	test.That(t, res.Min.X, test.ShouldEqual, 290)
+	test.That(t, res.Min.Y, test.ShouldEqual, 517)
 
 }
 
