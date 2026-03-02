@@ -4,11 +4,11 @@ go 1.25.1
 
 require (
 	github.com/corentings/chess/v2 v2.3.5
-	github.com/erh/vmodutils v0.3.11-0.20260228181232-0e344ab7e335
+	github.com/erh/vmodutils v0.3.11-0.20260302173118-4cb87a99b416
 	github.com/golang/geo v0.0.0-20230421003525-6adc56603217
 	github.com/mitchellh/mapstructure v1.5.0
 	go.uber.org/multierr v1.11.0
-	go.viam.com/rdk v0.115.0
+	go.viam.com/rdk v0.115.0-rc0.0.20260302172525-7153ec566a19
 	go.viam.com/test v1.2.4
 	go.viam.com/utils v0.4.3
 	golang.org/x/image v0.25.0
@@ -255,7 +255,7 @@ require (
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	go.viam.com/api v0.1.519 // indirect
+	go.viam.com/api v0.1.523 // indirect
 	go4.org/unsafe/assume-no-moving-gc v0.0.0-20230525183740-e7c30c78aeb2 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/exp v0.0.0-20260209203927-2842357ff358 // indirect
