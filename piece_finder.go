@@ -328,6 +328,21 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 			if err2 := rimage.SaveImage(ret.Image, "chess-debug.jpg"); err2 != nil {
 				bc.logger.Errorf("failed to save debug image: %v", err2)
 			}
+			if corners, err2 := findBoard(ret.Image); err2 != nil {
+				bc.logger.Errorf("failed to find corners for debug: %v", err2)
+			} else {
+				bounds := ret.Image.Bounds()
+				dst := image.NewRGBA(bounds)
+				draw.Draw(dst, bounds, ret.Image, image.Point{}, draw.Src)
+				red := color.RGBA{255, 0, 0, 255}
+				for _, corner := range corners {
+					drawRect(dst, image.Rect(corner.X-5, corner.Y-5, corner.X+5, corner.Y+5), red)
+				}
+				if err2 = rimage.SaveImage(dst, "chess-debug-corners.jpg"); err2 != nil {
+					bc.logger.Errorf("failed to save debug corners image: %v", err2)
+				}
+			}
+
 			if f, err2 := os.Create("chess-debug.pcd"); err2 != nil {
 				bc.logger.Errorf("failed to create debug pcd: %v", err2)
 			} else {
