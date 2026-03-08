@@ -30,6 +30,8 @@ bin
 
 chesscli
 
+chess-debug.jpg
+chess-debug.pcd
 test*.jpg
 hack-test.jpg   
 data/*output.jpg

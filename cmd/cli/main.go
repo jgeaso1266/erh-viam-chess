@@ -63,7 +63,7 @@ func realMain() error {
 		if err != nil {
 			return err
 		}
-		all, err := pf.CaptureAllFromCamera(ctx, "cam", viscapture.CaptureOptions{}, nil)
+		all, err := pf.CaptureAllFromCamera(ctx, "cam", viscapture.CaptureOptions{}, map[string]interface{}{"debug": true})
 		if err != nil {
 			return err
 		}

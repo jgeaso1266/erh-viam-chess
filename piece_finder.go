@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"os"
 
 	"github.com/golang/geo/r3"
 
@@ -17,6 +18,7 @@ import (
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/pointcloud"
 	"go.viam.com/rdk/resource"
+	"go.viam.com/rdk/rimage"
 	"go.viam.com/rdk/robot/framesystem"
 	"go.viam.com/rdk/services/vision"
 	viz "go.viam.com/rdk/vision"
@@ -322,6 +324,20 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 	squares, err := findBoardAndPieces(ret.Image, pc, bc.props, bc.logger)
 	span2.End()
 	if err != nil {
+		if extra != nil && extra["debug"] == true {
+			if err2 := rimage.SaveImage(ret.Image, "chess-debug.jpg"); err2 != nil {
+				bc.logger.Errorf("failed to save debug image: %v", err2)
+			}
+			if f, err2 := os.Create("chess-debug.pcd"); err2 != nil {
+				bc.logger.Errorf("failed to create debug pcd: %v", err2)
+			} else {
+				if err2 = pointcloud.ToPCD(pc, f, pointcloud.PCDBinary); err2 != nil {
+					bc.logger.Errorf("failed to write debug pcd: %v", err2)
+				}
+				f.Close()
+			}
+			bc.logger.Warnf("findBoardAndPieces failed, saved debug data")
+		}
 		return ret, err
 	}
 
