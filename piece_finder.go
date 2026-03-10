@@ -18,10 +18,12 @@ import (
 	"go.viam.com/rdk/components/camera"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/pointcloud"
+	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/rimage"
 	"go.viam.com/rdk/robot/framesystem"
 	"go.viam.com/rdk/services/vision"
+	"go.viam.com/rdk/spatialmath"
 	viz "go.viam.com/rdk/vision"
 	"go.viam.com/rdk/vision/classification"
 	"go.viam.com/rdk/vision/objectdetection"
@@ -386,7 +388,16 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 
 		ret.Detections = append(ret.Detections, objectdetection.NewDetectionWithoutImgBounds(s.originalBounds, 1, label))
 
-		highPoint := getPickupCenter(o)
+		highPointInWorld := getPickupCenter(o)
+
+		highPointInCam, err := bc.rfs.TransformPose(ctx,
+			referenceframe.NewPoseInFrame("world", spatialmath.NewPoseFromPoint(highPointInWorld)),
+			bc.conf.Input,
+			nil)
+		if err != nil {
+			return ret, nil
+		}
+		highPoint := highPointInCam.Pose().Point()
 
 		highX, highY, err := bc.props.PointToPixel(r3.Vector{highPoint.X, highPoint.Y, highPoint.Z})
 		if err != nil {
