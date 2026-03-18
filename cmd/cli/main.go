@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/pointcloud"
 	generic "go.viam.com/rdk/services/generic"
 	"go.viam.com/rdk/vision/viscapture"
 
@@ -64,7 +66,8 @@ func realMain() error {
 		if err != nil {
 			return err
 		}
-		all, err := pf.CaptureAllFromCamera(ctx, "cam", viscapture.CaptureOptions{}, map[string]interface{}{"debug": true})
+		all, err := pf.CaptureAllFromCamera(ctx, "cam", viscapture.CaptureOptions{},
+			map[string]interface{}{"debug": true, "save": true})
 		if err != nil {
 			return err
 		}
@@ -76,6 +79,16 @@ func realMain() error {
 			for _, o := range all.Objects {
 				if strings.HasPrefix(o.Geometry.Label(), *from) {
 					logger.Infof("%s : %v", *from, viamchess.GetPickupCenter(o))
+					fn := fmt.Sprintf("piece-%s.pcd", *from)
+					if f, err := os.Create(fn); err != nil {
+						logger.Errorf("failed to create %s: %v", fn, err)
+					} else {
+						defer f.Close()
+						if err = pointcloud.ToPCD(o, f, pointcloud.PCDBinary); err != nil {
+							return fmt.Errorf("failed to write %s: %w", fn, err)
+						}
+						logger.Infof("wrote point cloud to %s", fn)
+					}
 				}
 			}
 		}
