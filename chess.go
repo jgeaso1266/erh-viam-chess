@@ -65,6 +65,10 @@ type ChessConfig struct {
 	EngineMillis int `json:"engine-millis"`
 
 	CaptureDir string // mostly for vla data
+
+	Speak       bool `json:"speak"`
+	SpeakSpeed  int  `json:"speak-speed"`
+	SpeakVolume int  `json:"speak-volume"`
 }
 
 func (cfg *ChessConfig) engine() string {
@@ -802,14 +806,25 @@ func (s *viamChessChess) pickMove(ctx context.Context, game *chess.Game) (*chess
 
 }
 
-func speakText(text string) {
-	if err := exec.Command("espeak", text).Run(); err != nil {
+func speakText(cfg *ChessConfig, text string) {
+	if !cfg.Speak {
+		return
+	}
+	speed := cfg.SpeakSpeed
+	if speed <= 0 {
+		speed = 140
+	}
+	volume := cfg.SpeakVolume
+	if volume <= 0 {
+		volume = 150
+	}
+	if err := exec.Command("espeak", "-s", fmt.Sprintf("%d", speed), "-a", fmt.Sprintf("%d", volume), "-v", "en+m3", text).Run(); err != nil {
 		// espeak not installed or failed — silently skip
 		_ = err
 	}
 }
 
-func buildMoveDescription(m *chess.Move, pos *chess.Position) string {
+func buildMoveDescription(m *chess.Move, pos *chess.Position, game *chess.Game) string {
 	pieceNames := map[chess.PieceType]string{
 		chess.Pawn:   "pawn",
 		chess.Knight: "knight",
@@ -835,6 +850,15 @@ func buildMoveDescription(m *chess.Move, pos *chess.Position) string {
 		description = fmt.Sprintf("%s takes %s on %s", pieceName, pieceNames[captured.Type()], m.S2().String())
 	default:
 		description = fmt.Sprintf("%s to %s", pieceName, m.S2().String())
+	}
+
+	switch game.Outcome() {
+	case chess.WhiteWon, chess.BlackWon:
+		description += ", checkmate"
+	case chess.NoOutcome:
+		if m.HasTag(chess.Check) {
+			description += ", check"
+		}
 	}
 
 	return description
@@ -945,7 +969,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		return nil, err
 	}
 
-	go speakText(buildMoveDescription(m, positionBeforeMove))
+	go speakText(s.conf, buildMoveDescription(m, positionBeforeMove, theState.game))
 
 	return m, nil
 }

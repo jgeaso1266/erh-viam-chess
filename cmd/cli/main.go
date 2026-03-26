@@ -102,6 +102,9 @@ func realMain() error {
 		PoseStart:   "hack-pose-look-straight-down",
 		Camera:      "cam",
 		CaptureDir:  "captured-data",
+		Speak:       true,
+		SpeakSpeed:  140,
+		SpeakVolume: 150,
 	}
 	_, _, err = cfg.Validate("")
 	if err != nil {
