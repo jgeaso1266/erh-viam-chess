@@ -3,8 +3,10 @@ package viamchess
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -205,7 +207,7 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 		return nil, fmt.Errorf("cannot goToStart in constructor: %w", err)
 	}
 
-	s.fenFile = os.Getenv("VIAM_MODULE_DATA") + "state.json"
+	s.fenFile = filepath.Join(os.Getenv("VIAM_MODULE_DATA"), "state.json")
 	s.logger.Infof("fenFile: %v", s.fenFile)
 	s.engine, err = uci.New(conf.engine())
 	if err != nil {
@@ -840,7 +842,12 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 }
 
 func (s *viamChessChess) wipe(ctx context.Context) error {
-	return os.Remove(s.fenFile)
+	err := os.Remove(s.fenFile)
+	if errors.Is(err, os.ErrNotExist) {
+		s.logger.Warnf("wipe called but no game state file found at %s — nothing to wipe", s.fenFile)
+		return nil
+	}
+	return err
 }
 
 func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscapture.VisCapture) error {

@@ -152,7 +152,15 @@ func realMain() error {
 		}
 		logger.Infof("res: %v", res)
 		return nil
-
+	case "wipe":
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"wipe": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
 	default:
 		return fmt.Errorf("unknown command [%s]", *cmd)
 	}
