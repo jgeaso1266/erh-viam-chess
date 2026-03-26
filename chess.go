@@ -943,6 +943,20 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 
 	theState := &resetState{theMainState.game.Position().Board(), theMainState.graveyard}
 
+	// Clear stale cache — the board has moved since the last game.
+	s.clearSquareCache()
+
+	// One snapshot before the loop to populate the square cache.
+	err = s.goToStart(ctx)
+	if err != nil {
+		return err
+	}
+	all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+	if err != nil {
+		return err
+	}
+	s.populateCacheFromCapture(all)
+
 	for {
 		from, to, err := nextResetMove(theState)
 		if err != nil {
@@ -950,16 +964,6 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		}
 		if from < 0 {
 			break
-		}
-
-		err = s.goToStart(ctx)
-		if err != nil {
-			return err
-		}
-
-		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
-		if err != nil {
-			return err
 		}
 
 		err = s.movePiece(ctx, all, nil, squareToString(from), squareToString(to), nil)
