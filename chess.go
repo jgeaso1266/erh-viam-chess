@@ -870,7 +870,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		endFile := m.S2().String()[0]
 
 		pieceToRemoveSquare := fmt.Sprintf("%s%s", endFile, startRank)
-		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", m)
+		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", nil)
 		if err != nil {
 			return nil, err
 		}
