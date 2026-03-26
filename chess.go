@@ -994,7 +994,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		return err
 	}
 
-	differnces := []chess.Square{}
+	differences := []chess.Square{}
 	from := chess.NoSquare
 	to := chess.NoSquare
 
@@ -1006,8 +1006,8 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		oc := int(o.Geometry.Label()[3] - '0')
 
 		if int(fromState.Color()) != oc {
-			s.logger.Infof("differnent %s fromState: %v o: %v oc: %v", x, fromState, o.Geometry.Label(), oc)
-			differnces = append(differnces, sq)
+			s.logger.Infof("different %s fromState: %v o: %v oc: %v", x, fromState, o.Geometry.Label(), oc)
+			differences = append(differences, sq)
 			if oc == 0 {
 				from = sq
 			} else if oc > 0 {
@@ -1017,37 +1017,37 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 
 	}
 
-	if len(differnces) == 0 {
+	if len(differences) == 0 {
 		return nil
 	}
 
-	if len(differnces) == 4 {
+	if len(differences) == 4 {
 		// is this a castle??
-		if squaresSame(differnces, []chess.Square{chess.E1, chess.F1, chess.G1, chess.H1}) {
+		if squaresSame(differences, []chess.Square{chess.E1, chess.F1, chess.G1, chess.H1}) {
 			// white king castle
 			from = chess.E1
 			to = chess.G1
-			differnces = nil
-		} else if squaresSame(differnces, []chess.Square{chess.E1, chess.A1, chess.C1, chess.D1}) {
+			differences = nil
+		} else if squaresSame(differences, []chess.Square{chess.E1, chess.A1, chess.C1, chess.D1}) {
 			// white queen castle
 			from = chess.E1
 			to = chess.C1
-			differnces = nil
-		} else if squaresSame(differnces, []chess.Square{chess.E8, chess.F8, chess.G8, chess.H8}) {
+			differences = nil
+		} else if squaresSame(differences, []chess.Square{chess.E8, chess.F8, chess.G8, chess.H8}) {
 			// black king castle
 			from = chess.E8
 			to = chess.G8
-			differnces = nil
-		} else if squaresSame(differnces, []chess.Square{chess.E8, chess.A8, chess.C8, chess.D8}) {
+			differences = nil
+		} else if squaresSame(differences, []chess.Square{chess.E8, chess.A8, chess.C8, chess.D8}) {
 			// black queen castle
 			from = chess.E8
 			to = chess.C8
-			differnces = nil
+			differences = nil
 		}
 	}
 
-	if len(differnces) != 2 && len(differnces) != 0 {
-		return fmt.Errorf("bad number of differnces (%d) : %v", len(differnces), differnces)
+	if len(differences) != 2 && len(differences) != 0 {
+		return fmt.Errorf("bad number of differences (%d) : %v", len(differences), differences)
 	}
 
 	moves := theState.game.ValidMoves()
@@ -1099,7 +1099,7 @@ func (s *viamChessChess) runCaptureThread(ctx context.Context) {
 		if s.movePieceStatus.Load() > 0 {
 			err := s.doCapture(ctx, sessionStart)
 			if err != nil {
-				s.logger.Errorf("error un runJointCaptureThread: %v", err)
+				s.logger.Errorf("error in runCaptureThread: %v", err)
 			}
 		}
 
