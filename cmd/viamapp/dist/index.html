@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chess Robot</title>
+    <script type="module" crossorigin src="/assets/index-CsDBnKV7.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DZLY_gx0.css">
+  </head>
+  <body>
+    <nav>
+      <span class="brand">♟ Chess Robot</span>
+      <span id="status" class="status">Connecting...</span>
+    </nav>
+
+    <div class="layout">
+      <div class="board-col">
+        <div id="board"></div>
+        <div id="turn-indicator"></div>
+      </div>
+
+      <div class="controls-col">
+        <section class="card">
+          <h3>Robot Move</h3>
+          <div class="row">
+            <input id="go-n" type="number" value="1" min="1" />
+            <label>moves</label>
+            <button id="btn-go" class="btn-primary">Go</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Direct Move</h3>
+          <div class="row">
+            <input id="move-from" type="text" placeholder="e2" maxlength="2" class="sq-input" />
+            <span>→</span>
+            <input id="move-to" type="text" placeholder="e4" maxlength="2" class="sq-input" />
+            <input id="move-n" type="number" value="1" min="1" class="n-input" />
+            <button id="btn-move" class="btn-secondary">Move</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Maintenance</h3>
+          <div class="row wrap">
+            <button id="btn-reset" class="btn-warn">Reset Board</button>
+            <button id="btn-wipe" class="btn-danger">Wipe State</button>
+            <button id="btn-cache" class="btn-muted">Clear Cache</button>
+            <button id="btn-refresh" class="btn-muted">Refresh</button>
+          </div>
+        </section>
+
+        <section class="card history-card">
+          <div class="history-header">
+            <h3>Move History</h3>
+            <button id="btn-clear-history" class="btn-muted sm">Clear</button>
+          </div>
+          <ol id="history-list" reversed></ol>
+        </section>
+      </div>
+    </div>
+
+    <div id="spinner" class="spinner-overlay hidden">
+      <div class="spinner"></div>
+    </div>
+
+  </body>
+</html>
