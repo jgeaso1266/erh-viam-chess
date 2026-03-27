@@ -13,7 +13,7 @@ func TestReset1(t *testing.T) {
 	theMainState, err := readState(ctx, "data/reset1.json")
 	test.That(t, err, test.ShouldBeNil)
 
-	theState := &resetState{theMainState.game.Position().Board(), theMainState.graveyard}
+	theState := &resetState{theMainState.game.Position().Board(), theMainState.whiteGraveyard, theMainState.blackGraveyard}
 
 	from, to, err := nextResetMove(theState)
 	test.That(t, err, test.ShouldBeNil)
@@ -27,7 +27,7 @@ func TestReset2(t *testing.T) {
 	theMainState, err := readState(ctx, "data/reset2.json")
 	test.That(t, err, test.ShouldBeNil)
 
-	theState := &resetState{theMainState.game.Position().Board(), theMainState.graveyard}
+	theState := &resetState{theMainState.game.Position().Board(), theMainState.whiteGraveyard, theMainState.blackGraveyard}
 
 	// -
 

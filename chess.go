@@ -393,11 +393,20 @@ func (s *viamChessChess) findDetection(data viscapture.VisCapture, pos string) o
 	return nil
 }
 
-func (s *viamChessChess) graveyardPosition(data viscapture.VisCapture, pos int) (r3.Vector, error) {
-	f := 8 - (pos % 8)
-	ex := 1 + (pos / 8)
+// graveyardPosition computes the physical world-frame position for a captured piece.
+// colorIdx is the index within that color's graveyard (0 = first captured, 1 = second, …).
+// isWhite=true places pieces on the a-file side (white's graveyard, negative Y offset).
+// isWhite=false places pieces on the h-file side (black's graveyard, positive Y offset).
+func (s *viamChessChess) graveyardPosition(data viscapture.VisCapture, colorIdx int, isWhite bool) (r3.Vector, error) {
+	f := 8 - (colorIdx % 8)
+	ex := 1 + (colorIdx / 8)
 
-	k := fmt.Sprintf("a%d", f)
+	var k string
+	if isWhite {
+		k = fmt.Sprintf("a%d", f)
+	} else {
+		k = fmt.Sprintf("h%d", f)
+	}
 
 	// Use the cached X,Y if available (data may be empty when the square cache is warm).
 	s.squareXYMu.RLock()
@@ -416,25 +425,33 @@ func (s *viamChessChess) graveyardPosition(data viscapture.VisCapture, pos int) 
 		baseX, baseY = md.Center().X, md.Center().Y
 	}
 
-	return r3.Vector{X: baseX, Y: baseY - float64(ex*80), Z: 60}, nil
+	if isWhite {
+		return r3.Vector{X: baseX, Y: baseY - float64(ex*80), Z: 60}, nil
+	}
+	return r3.Vector{X: baseX, Y: baseY + float64(ex*80), Z: 60}, nil
 }
 
 func (s *viamChessChess) getCenterFor(data viscapture.VisCapture, pos string, theState *state) (r3.Vector, error) {
 	if pos == "-" {
-		if theState == nil {
-			return r3.Vector{X: 400, Y: -400, Z: 200}, nil
-		}
-		return s.graveyardPosition(data, len(theState.graveyard))
+		// Placement to graveyard: caller (movePiece) handles this directly.
+		// Fallback for hover/other callers that don't need state.
+		return r3.Vector{X: 400, Y: -400, Z: 200}, nil
 	}
 
 	if pos[0] == 'X' {
-		x := -1
-		_, err := fmt.Sscanf(pos, "X%d", &x)
-		if err != nil {
-			return r3.Vector{}, fmt.Errorf("bad special graveyard (%s)", pos)
+		// "XW{n}" = white graveyard index n, "XB{n}" = black graveyard index n.
+		if len(pos) >= 3 {
+			x := -1
+			if pos[1] == 'W' {
+				fmt.Sscanf(pos, "XW%d", &x)
+				return s.graveyardPosition(data, x, true)
+			}
+			if pos[1] == 'B' {
+				fmt.Sscanf(pos, "XB%d", &x)
+				return s.graveyardPosition(data, x, false)
+			}
 		}
-
-		return s.graveyardPosition(data, x)
+		return r3.Vector{}, fmt.Errorf("bad special graveyard (%s)", pos)
 	}
 
 	o := s.findObject(data, pos)
@@ -545,7 +562,11 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 				return fmt.Errorf("can't move piece out of the way: %w", err)
 			}
 			if theState != nil {
-				theState.graveyard = append(theState.graveyard, int(capturedPiece))
+				if capturedPiece.Color() == chess.White {
+					theState.whiteGraveyard = append(theState.whiteGraveyard, int(capturedPiece))
+				} else {
+					theState.blackGraveyard = append(theState.blackGraveyard, int(capturedPiece))
+				}
 			}
 		}
 	}
@@ -617,8 +638,27 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 	// Place at destination square.
 	{
 		var destXY r3.Vector
-		if to == "-" || (len(to) > 0 && to[0] == 'X') {
-			// Graveyard / special positions: compute from pointcloud, don't cache.
+		if to == "-" {
+			// Placing a captured piece into the graveyard.
+			// Determine its color from the source square so we can place it on the correct side.
+			colorIdx, isWhite := 0, false
+			if theState != nil && len(from) == 2 {
+				sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
+				piece := theState.game.Position().Board().Piece(sq)
+				isWhite = piece.Color() == chess.White
+				if isWhite {
+					colorIdx = len(theState.whiteGraveyard)
+				} else {
+					colorIdx = len(theState.blackGraveyard)
+				}
+			}
+			center, err := s.graveyardPosition(data, colorIdx, isWhite)
+			if err != nil {
+				return err
+			}
+			destXY = r3.Vector{X: center.X, Y: center.Y}
+		} else if len(to) > 0 && to[0] == 'X' {
+			// Graveyard retrieval (e.g. during reset): encoded as "XW{n}" or "XB{n}".
 			center, err := s.getCenterFor(data, to, theState)
 			if err != nil {
 				return err
@@ -720,13 +760,15 @@ func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector) error {
 }
 
 type state struct {
-	game      *chess.Game
-	graveyard []int
+	game           *chess.Game
+	whiteGraveyard []int // captured white pieces, placed on the a-file side
+	blackGraveyard []int // captured black pieces, placed on the h-file side
 }
 
 type savedState struct {
-	FEN       string `json:"fen"`
-	Graveyard []int  `json:"graveyard"`
+	FEN            string `json:"fen"`
+	WhiteGraveyard []int  `json:"white_graveyard,omitempty"`
+	BlackGraveyard []int  `json:"black_graveyard,omitempty"`
 }
 
 func (s *viamChessChess) getGame(ctx context.Context) (*state, error) {
@@ -739,7 +781,7 @@ func readState(ctx context.Context, fn string) (*state, error) {
 
 	data, err := os.ReadFile(fn)
 	if os.IsNotExist(err) {
-		return &state{chess.NewGame(), []int{}}, nil
+		return &state{game: chess.NewGame()}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("error reading fen (%s) %T", fn, err)
@@ -755,7 +797,7 @@ func readState(ctx context.Context, fn string) (*state, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid fen from (%s) (%s) %w", fn, data, err)
 	}
-	return &state{chess.NewGame(f), ss.Graveyard}, nil
+	return &state{game: chess.NewGame(f), whiteGraveyard: ss.WhiteGraveyard, blackGraveyard: ss.BlackGraveyard}, nil
 }
 
 func (s *viamChessChess) saveGame(ctx context.Context, theState *state) error {
@@ -763,8 +805,9 @@ func (s *viamChessChess) saveGame(ctx context.Context, theState *state) error {
 	defer span.End()
 
 	ss := savedState{
-		FEN:       theState.game.FEN(),
-		Graveyard: theState.graveyard,
+		FEN:            theState.game.FEN(),
+		WhiteGraveyard: theState.whiteGraveyard,
+		BlackGraveyard: theState.blackGraveyard,
 	}
 	b, err := json.MarshalIndent(&ss, "", "  ")
 	if err != nil {
@@ -945,7 +988,11 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		return err
 	}
 
-	theState := &resetState{theMainState.game.Position().Board(), theMainState.graveyard}
+	theState := &resetState{
+		board:          theMainState.game.Position().Board(),
+		whiteGraveyard: theMainState.whiteGraveyard,
+		blackGraveyard: theMainState.blackGraveyard,
+	}
 
 	// Clear stale cache — the board has moved since the last game.
 	s.clearSquareCache()
