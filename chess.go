@@ -1022,9 +1022,21 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 			break
 		}
 
-		err = s.movePiece(ctx, all, nil, squareToString(from), squareToString(to), nil)
+		fromStr := squareToString(from)
+		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), nil)
 		if err != nil {
 			return err
+		}
+
+		// Mark the source square as empty in the snapshot so that subsequent
+		// movePiece calls don't see stale occupancy data.
+		if from < 70 { // board square, not a graveyard slot
+			for _, o := range all.Objects {
+				if strings.HasPrefix(o.Geometry.Label(), fromStr+"-") {
+					o.Geometry.SetLabel(fromStr + "-0")
+					break
+				}
+			}
 		}
 
 		err = theState.applyMove(from, to)
