@@ -901,9 +901,9 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			case "g1":
 				f = "h1"
 				t = "f1"
-			case "a1":
+			case "c1":
 				f = "a1"
-				t = "c1"
+				t = "d1"
 			default:
 				return nil, fmt.Errorf("bad castle? %v", m)
 			}
@@ -912,9 +912,9 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			case "g8":
 				f = "h8"
 				t = "f8"
-			case "a8":
+			case "c8":
 				f = "a8"
-				t = "c8"
+				t = "d8"
 			default:
 				return nil, fmt.Errorf("bad castle? %v", m)
 			}
@@ -1082,13 +1082,13 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 				if m.S2().String() == "g1" {
 					f2, t2 = "h1", "f1"
 				} else {
-					f2, t2 = "a1", "c1"
+					f2, t2 = "a1", "d1"
 				}
 			case "e8":
 				if m.S2().String() == "g8" {
 					f2, t2 = "h8", "f8"
 				} else {
-					f2, t2 = "a8", "c8"
+					f2, t2 = "a8", "d8"
 				}
 			default:
 				return fmt.Errorf("bad castle? %v", m)
