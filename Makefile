@@ -32,7 +32,7 @@ module.tar.gz: test meta.json $(MODULE_BINARY)
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif
-	tar czf $@ meta.json $(MODULE_BINARY)
+	tar czf $@ meta.json $(MODULE_BINARY) cmd/viamapp/dist/
 
 module: test module.tar.gz
 

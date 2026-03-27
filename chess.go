@@ -27,6 +27,7 @@ import (
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/robot/framesystem"
 	generic "go.viam.com/rdk/services/generic"
+	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/services/vision"
 	"go.viam.com/rdk/spatialmath"
@@ -705,9 +706,12 @@ func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector) error {
 	}
 
 	myPose := spatialmath.NewPose(p, orientation)
+	myConstraints := &motionplan.Constraints{}
+	myConstraints.AddOrientationConstraint(motionplan.OrientationConstraint{OrientationToleranceDegs: 45})
 	_, err := s.motion.Move(ctx, motion.MoveReq{
 		ComponentName: s.conf.Gripper,
 		Destination:   referenceframe.NewPoseInFrame("world", myPose),
+		Constraints:   myConstraints,
 	})
 	if err != nil {
 		return fmt.Errorf("can't move to %v: %w", myPose, err)
@@ -880,7 +884,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		startRank := m.S1().String()[1]
 		endFile := m.S2().String()[0]
 
-		pieceToRemoveSquare := fmt.Sprintf("%s%s", endFile, startRank)
+		pieceToRemoveSquare := fmt.Sprintf("%c%c", endFile, startRank)
 		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", nil)
 		if err != nil {
 			return nil, err
