@@ -30,11 +30,12 @@ func realMain() error {
 
 	host := flag.String("host", "", "host")
 	debug := flag.Bool("debug", false, "")
-	cmd := flag.String("cmd", "", "command to execute (move, go, reset, wipe, skill, etc..)")
+	cmd := flag.String("cmd", "", "command to execute (move, go, reset, wipe, skill, play-fen, etc..)")
 
 	from := flag.String("from", "", "")
 	to := flag.String("to", "", "")
 	n := flag.Int("n", 1, "")
+	fenFile := flag.String("fen-file", "", "path to PGN file for play-fen command")
 
 	flag.Parse()
 
@@ -156,6 +157,19 @@ func realMain() error {
 	case "wipe":
 		res, err := thing.DoCommand(ctx, map[string]interface{}{
 			"wipe": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
+	case "play-fen":
+		if *fenFile == "" {
+			return fmt.Errorf("play-fen requires --fen-file")
+		}
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"playfen": *fenFile,
 		})
 		if err != nil {
 			return err
