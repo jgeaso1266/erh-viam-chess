@@ -1075,10 +1075,6 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 	for i, m := range moves {
 		s.logger.Infof("playFENFile: move %d/%d: %s", i+1, len(moves), m.String())
 
-		if err := s.goToStart(ctx); err != nil {
-			return err
-		}
-
 		if m.HasTag(chess.KingSideCastle) || m.HasTag(chess.QueenSideCastle) {
 			var f2, t2 string
 			switch m.S1().String() {
