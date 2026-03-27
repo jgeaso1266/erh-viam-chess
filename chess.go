@@ -23,11 +23,11 @@ import (
 	"go.viam.com/rdk/components/gripper"
 	toggleswitch "go.viam.com/rdk/components/switch"
 	"go.viam.com/rdk/logging"
+	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
 	"go.viam.com/rdk/robot/framesystem"
 	generic "go.viam.com/rdk/services/generic"
-	"go.viam.com/rdk/motionplan"
 	"go.viam.com/rdk/services/motion"
 	"go.viam.com/rdk/services/vision"
 	"go.viam.com/rdk/spatialmath"
@@ -1059,7 +1059,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 		return fmt.Errorf("wipe before playFENFile: %w", err)
 	}
 
-	theState := &state{chess.NewGame(), []int{}}
+	theState := &state{chess.NewGame(), []int{}, []int{}}
 
 	// One capture to populate the square position cache.
 	err = s.goToStart(ctx)
