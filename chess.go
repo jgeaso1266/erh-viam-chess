@@ -944,6 +944,11 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			return nil, err
 		}
 
+		if startRank == '5' {
+			theState.blackGraveyard = append(theState.blackGraveyard, 12)
+		} else {
+			theState.whiteGraveyard = append(theState.whiteGraveyard, 6)
+		}
 		//return nil, fmt.Errorf("can't handle enpassant")
 	}
 
@@ -1122,6 +1127,11 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			pieceToRemove := fmt.Sprintf("%c%c", endFile, startRank)
 			if err := s.movePiece(ctx, all, theState, pieceToRemove, "-", nil, nil); err != nil {
 				return err
+			}
+			if startRank == '5' {
+				theState.blackGraveyard = append(theState.blackGraveyard, 12)
+			} else {
+				theState.whiteGraveyard = append(theState.whiteGraveyard, 6)
 			}
 		}
 
