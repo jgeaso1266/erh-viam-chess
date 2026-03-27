@@ -294,7 +294,11 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			return nil, err
 		}
 
-		err = s.moveGripper(ctx, center)
+		ap := approachDefault
+		if squareIsRank7Or8(cmd.Hover) {
+			ap = approachBackrank78
+		}
+		err = s.moveGripper(ctx, center, ap)
 		if err != nil {
 			return nil, err
 		}
@@ -537,6 +541,19 @@ func (s *viamChessChess) getSquareXY(squareName string, data viscapture.VisCaptu
 	return xy, nil
 }
 
+// gripperApproach selects optional wrist orientation bias in moveGripper.
+type gripperApproach byte
+
+const (
+	approachDefault gripperApproach = iota
+	// approachBackrank78 mirrors the low-Y tilt (p.Y < -300) for the far side of the board (p.Y > 300).
+	approachBackrank78
+)
+
+func squareIsRank7Or8(name string) bool {
+	return len(name) == 2 && (name[1] == '7' || name[1] == '8')
+}
+
 func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board) error {
 	s.movePieceStatus.Add(1)
 	defer s.movePieceStatus.Add(-1)
@@ -595,6 +612,16 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		}
 	}
 
+	pickupApproach := approachDefault
+	if len(from) == 2 && squareIsRank7Or8(from) {
+		pickupApproach = approachBackrank78
+	}
+
+	placeApproach := approachDefault
+	if len(to) == 2 && to[0] >= 'a' && to[0] <= 'h' && squareIsRank7Or8(to) {
+		placeApproach = approachBackrank78
+	}
+
 	// Pick up from source square.
 	{
 		xy, err := s.getSquareXY(from, data)
@@ -607,7 +634,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			return err
 		}
 
-		err = s.moveGripper(ctx, r3.Vector{X: xy.X, Y: xy.Y, Z: safeZ})
+		err = s.moveGripper(ctx, r3.Vector{X: xy.X, Y: xy.Y, Z: safeZ}, pickupApproach)
 		if err != nil {
 			return err
 		}
@@ -619,7 +646,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 				return false, err
 			}
 			time.Sleep(500 * time.Millisecond)
-			if err := s.moveGripper(ctx, pos); err != nil {
+			if err := s.moveGripper(ctx, pos, pickupApproach); err != nil {
 				return false, err
 			}
 			return s.myGrab(ctx)
@@ -640,7 +667,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			return fmt.Errorf("couldn't grab piece at %s after 2 attempts", from)
 		}
 
-		err = s.moveGripper(ctx, r3.Vector{X: xy.X, Y: xy.Y, Z: safeZ})
+		err = s.moveGripper(ctx, r3.Vector{X: xy.X, Y: xy.Y, Z: safeZ}, pickupApproach)
 		if err != nil {
 			return err
 		}
@@ -683,12 +710,12 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			}
 		}
 
-		err := s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: safeZ})
+		err := s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: safeZ}, placeApproach)
 		if err != nil {
 			return err
 		}
 
-		err = s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: pickupZ})
+		err = s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: pickupZ}, placeApproach)
 		if err != nil {
 			return err
 		}
@@ -698,7 +725,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			return err
 		}
 
-		err = s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: safeZ})
+		err = s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: safeZ}, placeApproach)
 		if err != nil {
 			return err
 		}
@@ -734,11 +761,11 @@ func (s *viamChessChess) setupGripper(ctx context.Context) error {
 	ctx, span := trace.StartSpan(ctx, "setupGripper")
 	defer span.End()
 
-	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"move_gripper": 450.0})
+	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"move_gripper": 350.0})
 	return err
 }
 
-func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector) error {
+func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector, approach gripperApproach) error {
 	ctx, span := trace.StartSpan(ctx, "moveGripper")
 	defer span.End()
 
@@ -754,6 +781,11 @@ func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector) error {
 	if p.Y < -300 {
 		orientation.OY = (p.Y + 300) / 300
 		orientation.OX += .2
+	}
+
+	if approach == approachBackrank78 && p.Y > 300 {
+		orientation.OY = (p.Y - 300) / 300
+		orientation.OX -= .2
 	}
 
 	myPose := spatialmath.NewPose(p, orientation)
