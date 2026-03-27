@@ -322,7 +322,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 				return nil, err
 			}
 
-			err = s.movePiece(ctx, all, nil, from, to, nil)
+			err = s.movePiece(ctx, all, nil, from, to, nil, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -537,7 +537,7 @@ func (s *viamChessChess) getSquareXY(squareName string, data viscapture.VisCaptu
 	return xy, nil
 }
 
-func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move) error {
+func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board) error {
 	s.movePieceStatus.Add(1)
 	defer s.movePieceStatus.Add(-1)
 
@@ -562,7 +562,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 
 		if occupied {
 			s.logger.Infof("position %s already has a piece, will move to graveyard", to)
-			err := s.movePiece(ctx, data, theState, to, "-", nil)
+			err := s.movePiece(ctx, data, theState, to, "-", nil, nil)
 			if err != nil {
 				return fmt.Errorf("can't move piece out of the way: %w", err)
 			}
@@ -581,9 +581,15 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 
 	// Determine grab height based on piece type.
 	pickupZ := grabZ
+	var pieceBoard *chess.Board
 	if theState != nil {
+		pieceBoard = theState.game.Position().Board()
+	} else if board != nil {
+		pieceBoard = board
+	}
+	if pieceBoard != nil && len(from) == 2 {
 		sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
-		pt := theState.game.Position().Board().Piece(sq).Type()
+		pt := pieceBoard.Piece(sq).Type()
 		if pt == chess.King || pt == chess.Queen {
 			pickupZ = grabZTall
 		}
@@ -922,7 +928,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			return nil, fmt.Errorf("bad castle? %v", m)
 		}
 
-		err = s.movePiece(ctx, all, theState, f, t, nil)
+		err = s.movePiece(ctx, all, theState, f, t, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -933,7 +939,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		endFile := m.S2().String()[0]
 
 		pieceToRemoveSquare := fmt.Sprintf("%c%c", endFile, startRank)
-		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", nil)
+		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -941,7 +947,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		//return nil, fmt.Errorf("can't handle enpassant")
 	}
 
-	err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m)
+	err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1023,7 +1029,7 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		}
 
 		fromStr := squareToString(from)
-		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), nil)
+		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), nil, theState.board)
 		if err != nil {
 			return err
 		}
@@ -1105,7 +1111,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			default:
 				return fmt.Errorf("bad castle? %v", m)
 			}
-			if err := s.movePiece(ctx, all, theState, f2, t2, nil); err != nil {
+			if err := s.movePiece(ctx, all, theState, f2, t2, nil, nil); err != nil {
 				return err
 			}
 		}
@@ -1114,12 +1120,12 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			startRank := m.S1().String()[1]
 			endFile := m.S2().String()[0]
 			pieceToRemove := fmt.Sprintf("%c%c", endFile, startRank)
-			if err := s.movePiece(ctx, all, theState, pieceToRemove, "-", nil); err != nil {
+			if err := s.movePiece(ctx, all, theState, pieceToRemove, "-", nil, nil); err != nil {
 				return err
 			}
 		}
 
-		if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m); err != nil {
+		if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil); err != nil {
 			return fmt.Errorf("playFENFile move %d (%s): %w", i+1, m.String(), err)
 		}
 
