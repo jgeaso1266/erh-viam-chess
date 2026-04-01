@@ -1,19 +1,19 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
-  "module_id": "allisonorg:viam-chess",
+  "module_id": "erh:viam-chess",
   "visibility": "public",
-  "url": "https://github.com/jgeaso1266/erh-viam-chess",
+  "url": "https://github.com/erh/viam-chess",
   "description": "chess",
   "models": [
     {
       "api": "rdk:service:generic",
-      "model": "allisonorg:viam-chess:chess",
+      "model": "erh:viam-chess:chess",
       "short_description": "Provide a short (100 characters or less) description of this model here",
       "markdown_link": "README.md#chess-config"
     },
     {
       "api": "rdk:service:vision",
-      "model": "allisonorg:viam-chess:piece-finder",
+      "model": "erh:viam-chess:piece-finder",
       "short_description": "debugging tool mostly i think",
       "markdown_link": "README.md#piece-finder-config"
     }
@@ -28,7 +28,9 @@
     "setup": "make setup",
     "path": "module.tar.gz",
     "arch": [
-      "linux/amd64"
+      "linux/amd64",
+      "linux/arm64",
+      "darwin/arm64"
     ]
   }
 }
