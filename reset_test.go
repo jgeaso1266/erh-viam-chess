@@ -53,7 +53,7 @@ func TestReset2(t *testing.T) {
 
 	from, to, err = nextResetMove(theState)
 	test.That(t, err, test.ShouldBeNil)
-	test.That(t, squareToString(from), test.ShouldEqual, "X0")
+	test.That(t, squareToString(from), test.ShouldEqual, "XW0")
 	test.That(t, to.String(), test.ShouldEqual, "e2")
 
 	err = theState.applyMove(from, to)
