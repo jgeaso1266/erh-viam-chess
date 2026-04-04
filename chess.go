@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -205,7 +206,7 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 		return nil, fmt.Errorf("cannot goToStart in constructor: %w", err)
 	}
 
-	s.fenFile = os.Getenv("VIAM_MODULE_DATA") + "state.json"
+	s.fenFile = filepath.Join(os.Getenv("VIAM_MODULE_DATA"), "state.json")
 	s.logger.Infof("fenFile: %v", s.fenFile)
 	s.engine, err = uci.New(conf.engine())
 	if err != nil {
@@ -619,13 +620,13 @@ func readState(ctx context.Context, fn string) (*state, error) {
 		return &state{chess.NewGame(), []int{}}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error reading fen (%s) %T", fn, err)
+		return nil, fmt.Errorf("error reading fen (%s): %w", fn, err)
 	}
 
 	ss := savedState{}
 	err = json.Unmarshal(data, &ss)
 	if err != nil {
-		return nil, fmt.Errorf("cannot unmarshal json")
+		return nil, fmt.Errorf("cannot unmarshal json: %w", err)
 	}
 
 	f, err := chess.FEN(ss.FEN)
@@ -721,9 +722,9 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			case "g1":
 				f = "h1"
 				t = "f1"
-			case "a1":
+			case "c1":
 				f = "a1"
-				t = "c1"
+				t = "d1"
 			default:
 				return nil, fmt.Errorf("bad castle? %v", m)
 			}
@@ -732,9 +733,9 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			case "g8":
 				f = "h8"
 				t = "f8"
-			case "a8":
+			case "c8":
 				f = "a8"
-				t = "c8"
+				t = "d8"
 			default:
 				return nil, fmt.Errorf("bad castle? %v", m)
 			}
@@ -861,6 +862,9 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 
 		fromState := theState.game.Position().Board().Piece(sq)
 		o := s.findObject(all, x)
+		if o == nil {
+			return fmt.Errorf("can't find object for square %s during position check", x)
+		}
 		oc := int(o.Geometry.Label()[3] - '0')
 
 		if int(fromState.Color()) != oc {

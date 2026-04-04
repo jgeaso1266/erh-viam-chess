@@ -395,7 +395,7 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 			bc.conf.Input,
 			nil)
 		if err != nil {
-			return ret, nil
+			return ret, err
 		}
 		highPoint := highPointInCam.Pose().Point()
 
