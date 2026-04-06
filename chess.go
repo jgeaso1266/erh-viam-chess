@@ -795,13 +795,13 @@ func readState(ctx context.Context, fn string) (*state, error) {
 		return &state{game: chess.NewGame()}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("error reading fen (%s) %T", fn, err)
+		return nil, fmt.Errorf("error reading fen (%s): %w", fn, err)
 	}
 
 	ss := savedState{}
 	err = json.Unmarshal(data, &ss)
 	if err != nil {
-		return nil, fmt.Errorf("cannot unmarshal json")
+		return nil, fmt.Errorf("cannot unmarshal json: %w", err)
 	}
 
 	f, err := chess.FEN(ss.FEN)
@@ -1174,6 +1174,9 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 
 		fromState := theState.game.Position().Board().Piece(sq)
 		o := s.findObject(all, x)
+		if o == nil {
+			return fmt.Errorf("can't find object for square %s during position check", x)
+		}
 		oc := int(o.Geometry.Label()[3] - '0')
 
 		if int(fromState.Color()) != oc {
