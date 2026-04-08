@@ -245,12 +245,12 @@ func findBoardAndPieces(ctx context.Context, srcImg image.Image, pc pointcloud.P
 
 // 0 - blank, 1 - white, 2 - black
 func estimatePieceColor(pc pointcloud.PointCloud) int {
-	minZ := pc.MetaData().MaxZ - minPieceSize
+	pieceThreshold := pc.MetaData().MinZ + minPieceSize
 	var totalR, totalG, totalB float64
 	count := 0
 
 	pc.Iterate(0, 0, func(p r3.Vector, d pointcloud.Data) bool {
-		if p.Z < minZ && d != nil && d.HasColor() {
+		if p.Z > pieceThreshold && d != nil && d.HasColor() {
 			r, g, b := d.RGB255()
 			totalR += float64(r)
 			totalG += float64(g)

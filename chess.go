@@ -283,7 +283,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			return nil, err
 		}
 
-		center, err := s.getCenterFor(all, cmd.Hover, nil)
+		center, err := s.getCenterFor(all, cmd.Hover)
 		if err != nil {
 			return nil, err
 		}
@@ -322,7 +322,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 				return nil, err
 			}
 
-			err = s.movePiece(ctx, all, nil, from, to, nil, nil)
+			err = s.movePiece(ctx, all, nil, from, to, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -348,7 +348,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 	if cmd.Wipe {
 		s.clearSquareCache()
-		return nil, s.wipe(ctx)
+		return nil, s.wipe()
 	}
 
 	if cmd.ClearCache {
@@ -436,7 +436,7 @@ func (s *viamChessChess) graveyardPosition(data viscapture.VisCapture, colorIdx 
 	return r3.Vector{X: baseX, Y: baseY + float64(ex*80), Z: 60}, nil
 }
 
-func (s *viamChessChess) getCenterFor(data viscapture.VisCapture, pos string, theState *state) (r3.Vector, error) {
+func (s *viamChessChess) getCenterFor(data viscapture.VisCapture, pos string) (r3.Vector, error) {
 	if pos == "-" {
 		// Placement to graveyard: caller (movePiece) handles this directly.
 		// Fallback for hover/other callers that don't need state.
@@ -495,7 +495,7 @@ func (s *viamChessChess) populateCacheFromCapture(data viscapture.VisCapture) {
 			if ok {
 				continue
 			}
-			center, err := s.getCenterFor(data, name, nil)
+			center, err := s.getCenterFor(data, name)
 			if err != nil {
 				s.logger.Warnf("populateCacheFromCapture: can't get center for %s: %v", name, err)
 				continue
@@ -522,7 +522,7 @@ func (s *viamChessChess) getSquareXY(squareName string, data viscapture.VisCaptu
 		return xy, nil
 	}
 
-	center, err := s.getCenterFor(data, squareName, nil)
+	center, err := s.getCenterFor(data, squareName)
 	if err != nil {
 		return r3.Vector{}, err
 	}
@@ -537,7 +537,7 @@ func (s *viamChessChess) getSquareXY(squareName string, data viscapture.VisCaptu
 	return xy, nil
 }
 
-func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board) error {
+func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, board *chess.Board) error {
 	s.movePieceStatus.Add(1)
 	defer s.movePieceStatus.Add(-1)
 
@@ -562,7 +562,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 
 		if occupied {
 			s.logger.Infof("position %s already has a piece, will move to graveyard", to)
-			err := s.movePiece(ctx, data, theState, to, "-", nil, nil)
+			err := s.movePiece(ctx, data, theState, to, "-", nil)
 			if err != nil {
 				return fmt.Errorf("can't move piece out of the way: %w", err)
 			}
@@ -670,7 +670,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			destXY = r3.Vector{X: center.X, Y: center.Y}
 		} else if len(to) > 0 && to[0] == 'X' {
 			// Graveyard retrieval (e.g. during reset): encoded as "XW{n}" or "XB{n}".
-			center, err := s.getCenterFor(data, to, theState)
+			center, err := s.getCenterFor(data, to)
 			if err != nil {
 				return err
 			}
@@ -928,7 +928,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 			return nil, fmt.Errorf("bad castle? %v", m)
 		}
 
-		err = s.movePiece(ctx, all, theState, f, t, nil, nil)
+		err = s.movePiece(ctx, all, theState, f, t, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -939,7 +939,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		endFile := m.S2().String()[0]
 
 		pieceToRemoveSquare := fmt.Sprintf("%c%c", endFile, startRank)
-		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", nil, nil)
+		err = s.movePiece(ctx, all, theState, pieceToRemoveSquare, "-", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -952,7 +952,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		//return nil, fmt.Errorf("can't handle enpassant")
 	}
 
-	err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil)
+	err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1034,7 +1034,7 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		}
 
 		fromStr := squareToString(from)
-		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), nil, theState.board)
+		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), theState.board)
 		if err != nil {
 			return err
 		}
@@ -1056,7 +1056,7 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		}
 	}
 
-	return s.wipe(ctx)
+	return s.wipe()
 }
 
 // playFENFile reads a PGN file at the given path, wipes the current game state,
@@ -1078,7 +1078,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 	s.logger.Infof("playFENFile: loaded %d moves from %s", len(moves), path)
 
 	// Wipe state so we start fresh from the initial board position.
-	if err := s.wipe(ctx); err != nil {
+	if err := s.wipe(); err != nil {
 		return fmt.Errorf("wipe before playFENFile: %w", err)
 	}
 
@@ -1116,7 +1116,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			default:
 				return fmt.Errorf("bad castle? %v", m)
 			}
-			if err := s.movePiece(ctx, all, theState, f2, t2, nil, nil); err != nil {
+			if err := s.movePiece(ctx, all, theState, f2, t2, nil); err != nil {
 				return err
 			}
 		}
@@ -1125,7 +1125,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			startRank := m.S1().String()[1]
 			endFile := m.S2().String()[0]
 			pieceToRemove := fmt.Sprintf("%c%c", endFile, startRank)
-			if err := s.movePiece(ctx, all, theState, pieceToRemove, "-", nil, nil); err != nil {
+			if err := s.movePiece(ctx, all, theState, pieceToRemove, "-", nil); err != nil {
 				return err
 			}
 			if startRank == '5' {
@@ -1135,7 +1135,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			}
 		}
 
-		if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil); err != nil {
+		if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), nil); err != nil {
 			return fmt.Errorf("playFENFile move %d (%s): %w", i+1, m.String(), err)
 		}
 
@@ -1147,7 +1147,7 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 	return s.saveGame(ctx, theState)
 }
 
-func (s *viamChessChess) wipe(ctx context.Context) error {
+func (s *viamChessChess) wipe() error {
 	err := os.Remove(s.fenFile)
 	if errors.Is(err, os.ErrNotExist) {
 		s.logger.Warnf("wipe called but no game state file found at %s — nothing to wipe", s.fenFile)
