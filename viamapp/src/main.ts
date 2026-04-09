@@ -195,6 +195,19 @@ function setBusy(busy: boolean) {
   document.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = busy));
 }
 
+// ── Mode ───────────────────────────────────────────────────────────────────
+
+function setMode(mode: string) {
+  const label = document.getElementById("mode-label")!;
+  if (mode === "human") {
+    label.textContent = "Human vs Engine";
+    label.className = "mode-label mode-human";
+  } else {
+    label.textContent = "Engine vs Engine";
+    label.className = "mode-label mode-engine";
+  }
+}
+
 // ── Refresh ────────────────────────────────────────────────────────────────
 
 async function refreshState() {
@@ -205,6 +218,7 @@ async function refreshState() {
       renderCameraBoard(res.camera_board as Record<string, string>);
       document.getElementById("camera-board-section")!.classList.remove("hidden");
     }
+    if (typeof res.mode === "string") setMode(res.mode);
   } catch (e) {
     console.error("refresh failed", e);
   }
@@ -235,6 +249,7 @@ async function cmdGo() {
   await withSpinner(`Running ${n} move(s)...`, async () => {
     const res = await doCommand({ go: n });
     const move = typeof res.move === "string" ? res.move : "";
+    if (typeof res.mode === "string") setMode(res.mode);
     addHistory({ type: "go", label: `×${n}${move ? " → " + move : ""}` });
   });
 }
@@ -277,6 +292,19 @@ async function cmdSnapshot() {
   await withSpinner("Capturing board snapshot...", async () => {});
 }
 
+async function cmdToggleMode() {
+  setBusy(true);
+  try {
+    const res = await doCommand({ "toggle-mode": true });
+    if (typeof res.mode === "string") setMode(res.mode);
+    setStatus("Connected", "ok");
+  } catch (e) {
+    setStatus("Error: " + (e instanceof Error ? e.message : String(e)), "err");
+  } finally {
+    setBusy(false);
+  }
+}
+
 // ── Auto-refresh ───────────────────────────────────────────────────────────
 
 function startAutoRefresh() {
@@ -292,6 +320,7 @@ document.getElementById("btn-reset")!.addEventListener("click", cmdReset);
 document.getElementById("btn-wipe")!.addEventListener("click", cmdWipe);
 document.getElementById("btn-cache")!.addEventListener("click", cmdClearCache);
 document.getElementById("btn-snapshot")!.addEventListener("click", cmdSnapshot);
+document.getElementById("btn-toggle-mode")!.addEventListener("click", cmdToggleMode);
 document.getElementById("btn-refresh")!.addEventListener("click", () => void refreshState());
 document.getElementById("btn-clear-history")!.addEventListener("click", () => {
   history.length = 0;

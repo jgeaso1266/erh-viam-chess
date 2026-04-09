@@ -143,6 +143,8 @@ type viamChessChess struct {
 
 	squareXY   map[string]r3.Vector
 	squareXYMu sync.RWMutex
+
+	humanMode bool // true = human vs engine, false = engine vs engine
 }
 
 func newViamChessChess(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -250,7 +252,9 @@ type cmdStruct struct {
 	Hover         string
 	ClearCache    bool
 	PlayFEN       string
-	BoardSnapshot bool `mapstructure:"board-snapshot"`
+	BoardSnapshot bool   `mapstructure:"board-snapshot"`
+	ToggleMode    bool   `mapstructure:"toggle-mode"`
+	SetMode       string `mapstructure:"set-mode"`
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -268,6 +272,21 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	}
 
 	// Read-only / state-only commands — no arm movement needed, skip goToStart.
+	if cmd.ToggleMode {
+		s.humanMode = !s.humanMode
+		return map[string]interface{}{"mode": s.currentMode()}, nil
+	}
+	if cmd.SetMode != "" {
+		switch cmd.SetMode {
+		case "human":
+			s.humanMode = true
+		case "engine":
+			s.humanMode = false
+		default:
+			return nil, fmt.Errorf("unknown mode %q: use \"human\" or \"engine\"", cmd.SetMode)
+		}
+		return map[string]interface{}{"mode": s.currentMode()}, nil
+	}
 	if cmd.Wipe {
 		s.clearSquareCache()
 		return nil, s.wipe(ctx)
@@ -299,6 +318,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		return map[string]interface{}{
 			"fen":          theState.game.FEN(),
 			"camera_board": cameraBoard,
+			"mode":         s.currentMode(),
 		}, nil
 	}
 
@@ -370,13 +390,23 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 	if cmd.Go > 0 {
 		var m *chess.Move
-		for n := range cmd.Go {
-			m, err = s.makeAMove(ctx, n == 0)
+		if s.humanMode {
+			// Human vs engine: detect the human's physical move via camera, then
+			// engine responds once regardless of cmd.Go value.
+			m, err = s.makeAMove(ctx, true)
 			if err != nil {
 				return nil, err
 			}
+		} else {
+			// Engine vs engine: make cmd.Go consecutive engine moves.
+			for n := range cmd.Go {
+				m, err = s.makeAMove(ctx, n == 0)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
-		return map[string]interface{}{"move": m.String()}, nil
+		return map[string]interface{}{"move": m.String(), "mode": s.currentMode()}, nil
 	}
 
 	if cmd.Reset {
@@ -487,6 +517,13 @@ func (s *viamChessChess) getCenterFor(data viscapture.VisCapture, pos string, th
 	}
 
 	return GetPickupCenter(o), nil
+}
+
+func (s *viamChessChess) currentMode() string {
+	if s.humanMode {
+		return "human"
+	}
+	return "engine"
 }
 
 // allSquaresCached returns true once all 64 board squares have a cached X,Y position.
