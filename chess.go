@@ -261,17 +261,53 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	s.doCommandLock.Lock()
 	defer s.doCommandLock.Unlock()
 
+	var cmd cmdStruct
+	err := mapstructure.Decode(cmdMap, &cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read-only / state-only commands — no arm movement needed, skip goToStart.
+	if cmd.Wipe {
+		s.clearSquareCache()
+		return nil, s.wipe(ctx)
+	}
+	if cmd.ClearCache {
+		s.clearSquareCache()
+		return nil, nil
+	}
+	if cmd.Skill > 0 {
+		s.skillAdjust = cmd.Skill
+		return nil, nil
+	}
+	if cmd.BoardSnapshot {
+		theState, err := s.getGame(ctx)
+		if err != nil {
+			return nil, err
+		}
+		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		cameraBoard := map[string]interface{}{}
+		for _, o := range all.Objects {
+			label := o.Geometry.Label()
+			if idx := strings.LastIndex(label, "-"); idx != -1 {
+				cameraBoard[label[:idx]] = label[idx+1:]
+			}
+		}
+		return map[string]interface{}{
+			"fen":          theState.game.FEN(),
+			"camera_board": cameraBoard,
+		}, nil
+	}
+
 	defer func() {
 		err := s.goToStart(ctx)
 		if err != nil {
 			s.logger.Warnf("can't go home: %v", err)
 		}
 	}()
-	var cmd cmdStruct
-	err := mapstructure.Decode(cmdMap, &cmd)
-	if err != nil {
-		return nil, err
-	}
 
 	if cmd.Hover != "" {
 		err := s.goToStart(ctx)
@@ -347,45 +383,8 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		return nil, s.resetBoard(ctx)
 	}
 
-	if cmd.Wipe {
-		s.clearSquareCache()
-		return nil, s.wipe(ctx)
-	}
-
-	if cmd.ClearCache {
-		s.clearSquareCache()
-		return nil, nil
-	}
-
-	if cmd.Skill > 0 {
-		s.skillAdjust = cmd.Skill
-		return nil, nil
-	}
-
 	if cmd.PlayFEN != "" {
 		return nil, s.playFENFile(ctx, cmd.PlayFEN)
-	}
-
-	if cmd.BoardSnapshot {
-		theState, err := s.getGame(ctx)
-		if err != nil {
-			return nil, err
-		}
-		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
-		if err != nil {
-			return nil, err
-		}
-		cameraBoard := map[string]interface{}{}
-		for _, o := range all.Objects {
-			label := o.Geometry.Label()
-			if idx := strings.LastIndex(label, "-"); idx != -1 {
-				cameraBoard[label[:idx]] = label[idx+1:]
-			}
-		}
-		return map[string]interface{}{
-			"fen":          theState.game.FEN(),
-			"camera_board": cameraBoard,
-		}, nil
 	}
 
 	return nil, fmt.Errorf("bad cmd %v", cmdMap)

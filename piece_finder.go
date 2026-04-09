@@ -401,6 +401,7 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 	ret.Detections = make([]objectdetection.Detection, len(squares)*2)
 
 	eg2, egCtx2 := errgroup.WithContext(ctx)
+	eg2.SetLimit(8) // each goroutine makes 2 RPC calls; 8×2=16 max inflight, well under the 100-request limit
 	for i, s := range squares {
 		i, s := i, s
 		eg2.Go(func() error {
@@ -473,6 +474,10 @@ func (bc *PieceFinder) GetProperties(ctx context.Context, extra map[string]inter
 	return &vision.Properties{
 		ObjectPCDsSupported: true,
 	}, nil
+}
+
+func (bc *PieceFinder) Status(ctx context.Context) (map[string]interface{}, error) {
+	return nil, nil
 }
 
 func createDebugImage(input image.Image, squares []squareInfo) (image.Image, error) {
