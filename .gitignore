@@ -38,3 +38,4 @@ hack-test.jpg
 data/*output.jpg
 data/*transformed.jpg
 node_modules/
+.worktrees/
