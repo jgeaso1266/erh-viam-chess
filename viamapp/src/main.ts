@@ -113,11 +113,56 @@ function makeSquare(ri: number, ci: number, piece: string | null): HTMLTableCell
   td.className = "chess-square " + ((ri + ci) % 2 === 0 ? "light" : "dark");
   if (piece) {
     const span = document.createElement("span");
-    span.className = "chess-piece";
+    span.className = "chess-piece " + (piece === piece.toUpperCase() ? "piece-white" : "piece-black");
     span.textContent = PIECE_UNICODE[piece] ?? "";
     td.appendChild(span);
   }
   return td;
+}
+
+// ── Camera board rendering ─────────────────────────────────────────────────
+
+function renderCameraBoard(cameraBoard: Record<string, string>) {
+  const el = document.getElementById("camera-board")!;
+  const table = document.createElement("table");
+  table.className = "chess-table";
+
+  for (let rank = 8; rank >= 1; rank--) {
+    const tr = document.createElement("tr");
+    const rankTd = document.createElement("td");
+    rankTd.className = "rank-label";
+    rankTd.textContent = String(rank);
+    tr.appendChild(rankTd);
+
+    for (let fi = 0; fi < 8; fi++) {
+      const file = "abcdefgh"[fi];
+      const square = file + rank;
+      const color = cameraBoard[square] ?? "0";
+      const ri = 8 - rank;
+      const td = document.createElement("td");
+      td.className = "chess-square " + ((ri + fi) % 2 === 0 ? "light" : "dark");
+      if (color !== "0") {
+        const dot = document.createElement("span");
+        dot.className = color === "1" ? "cam-white" : "cam-black";
+        td.appendChild(dot);
+      }
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+
+  const fileTr = document.createElement("tr");
+  fileTr.appendChild(document.createElement("td"));
+  for (const f of "abcdefgh") {
+    const td = document.createElement("td");
+    td.className = "file-label";
+    td.textContent = f;
+    fileTr.appendChild(td);
+  }
+  table.appendChild(fileTr);
+
+  el.innerHTML = "";
+  el.appendChild(table);
 }
 
 // ── History ────────────────────────────────────────────────────────────────
@@ -154,8 +199,12 @@ function setBusy(busy: boolean) {
 
 async function refreshState() {
   try {
-    const res = await doCommand({ info: true });
+    const res = await doCommand({ "board-snapshot": true });
     if (typeof res.fen === "string") renderBoard(res.fen);
+    if (res.camera_board && typeof res.camera_board === "object") {
+      renderCameraBoard(res.camera_board as Record<string, string>);
+      document.getElementById("camera-board-section")!.classList.remove("hidden");
+    }
   } catch (e) {
     console.error("refresh failed", e);
   }
@@ -224,6 +273,10 @@ async function cmdClearCache() {
   });
 }
 
+async function cmdSnapshot() {
+  await withSpinner("Capturing board snapshot...", async () => {});
+}
+
 // ── Auto-refresh ───────────────────────────────────────────────────────────
 
 function startAutoRefresh() {
@@ -238,6 +291,7 @@ document.getElementById("btn-move")!.addEventListener("click", cmdMove);
 document.getElementById("btn-reset")!.addEventListener("click", cmdReset);
 document.getElementById("btn-wipe")!.addEventListener("click", cmdWipe);
 document.getElementById("btn-cache")!.addEventListener("click", cmdClearCache);
+document.getElementById("btn-snapshot")!.addEventListener("click", cmdSnapshot);
 document.getElementById("btn-refresh")!.addEventListener("click", () => void refreshState());
 document.getElementById("btn-clear-history")!.addEventListener("click", () => {
   history.length = 0;

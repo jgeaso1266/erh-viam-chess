@@ -31,10 +31,13 @@ nav {
   overflow: hidden;
 }
 
-/* ── Board ── */
-.board-col { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+/* ── Boards ── */
+.boards-row { display: flex; flex-direction: row; gap: 1.5rem; align-items: flex-start; }
+.board-section { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.board-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .07em; color: #e94560; }
+.hidden { display: none !important; }
 
-#board { display: inline-block; }
+#board, #camera-board { display: inline-block; }
 
 table.chess-table { border-collapse: collapse; border: 2px solid #555; }
 .chess-square {
@@ -47,8 +50,20 @@ table.chess-table { border-collapse: collapse; border: 2px solid #555; }
 .rank-label { width: 22px; color: #888; font-size: 0.75rem; text-align: center; }
 .file-label { height: 22px; color: #888; font-size: 0.75rem; text-align: center; }
 .chess-piece { font-size: 2.6rem; line-height: 1; user-select: none; }
+.chess-piece.piece-white { color: #fff; -webkit-text-stroke: 0.5px #777; }
+.chess-piece.piece-black { color: #1a1a1a; -webkit-text-stroke: 0.5px #777; }
 
 #turn-indicator { font-size: 0.85rem; color: #aaa; }
+
+/* ── Camera board indicators ── */
+.cam-white, .cam-black {
+  display: block;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  margin: auto;
+}
+.cam-white { background: #fff; box-shadow: 0 0 4px rgba(0,0,0,.4); }
+.cam-black { background: #1a1a1a; box-shadow: 0 0 4px rgba(255,255,255,.2); }
 
 /* ── Controls ── */
 .controls-col {

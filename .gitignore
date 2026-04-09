@@ -29,6 +29,7 @@ bin
 *tar.gz
 
 chesscli
+webapp
 
 chess-debug.jpg
 chess-debug-corners.jpg
@@ -39,3 +40,6 @@ data/*output.jpg
 data/*transformed.jpg
 node_modules/
 .worktrees/
+viamapp/dist/
+viamapp/.vite/
+.DS_Store

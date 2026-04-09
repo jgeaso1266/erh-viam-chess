@@ -242,14 +242,15 @@ type MoveCmd struct {
 }
 
 type cmdStruct struct {
-	Move       MoveCmd
-	Go         int
-	Reset      bool
-	Wipe       bool
-	Skill      float64
-	Hover      string
-	ClearCache bool
-	PlayFEN    string
+	Move          MoveCmd
+	Go            int
+	Reset         bool
+	Wipe          bool
+	Skill         float64
+	Hover         string
+	ClearCache    bool
+	PlayFEN       string
+	BoardSnapshot bool `mapstructure:"board-snapshot"`
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -363,6 +364,28 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 	if cmd.PlayFEN != "" {
 		return nil, s.playFENFile(ctx, cmd.PlayFEN)
+	}
+
+	if cmd.BoardSnapshot {
+		theState, err := s.getGame(ctx)
+		if err != nil {
+			return nil, err
+		}
+		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		cameraBoard := map[string]interface{}{}
+		for _, o := range all.Objects {
+			label := o.Geometry.Label()
+			if idx := strings.LastIndex(label, "-"); idx != -1 {
+				cameraBoard[label[:idx]] = label[idx+1:]
+			}
+		}
+		return map[string]interface{}{
+			"fen":          theState.game.FEN(),
+			"camera_board": cameraBoard,
+		}, nil
 	}
 
 	return nil, fmt.Errorf("bad cmd %v", cmdMap)
