@@ -42,4 +42,6 @@ node_modules/
 .worktrees/
 viamapp/dist/
 viamapp/.vite/
+viamapp/src/*.js
+viamapp/vite.config.js
 .DS_Store
