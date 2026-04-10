@@ -462,14 +462,15 @@ func (s *viamChessChess) findDetection(data viscapture.VisCapture, pos string) o
 // isWhite=true places pieces on the a-file side (white's graveyard, negative Y offset).
 // isWhite=false places pieces on the h-file side (black's graveyard, positive Y offset).
 func (s *viamChessChess) graveyardPosition(data viscapture.VisCapture, colorIdx int, isWhite bool) (r3.Vector, error) {
-	f := 8 - (colorIdx % 8)
 	ex := 1 + (colorIdx / 8)
 
 	var k string
 	if isWhite {
-		k = fmt.Sprintf("a%d", f)
+		// Black player's side: a8, a7, a6, … (descending from rank 8).
+		k = fmt.Sprintf("a%d", 8-(colorIdx%8))
 	} else {
-		k = fmt.Sprintf("h%d", f)
+		// White player's side: h1, h2, h3, … (ascending from rank 1).
+		k = fmt.Sprintf("h%d", 1+(colorIdx%8))
 	}
 
 	// Use the cached X,Y if available (data may be empty when the square cache is warm).
