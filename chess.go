@@ -251,7 +251,7 @@ type cmdStruct struct {
 	Skill         float64
 	Hover         string
 	ClearCache    bool
-	PlayFEN       string
+	PlayFEN       string `mapstructure:"play-fen"`
 	BoardSnapshot bool   `mapstructure:"board-snapshot"`
 	ToggleMode    bool   `mapstructure:"toggle-mode"`
 	SetMode       string `mapstructure:"set-mode"`
@@ -948,6 +948,12 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 
 	if doSanityCheck {
 		err = s.checkPositionForMoves(ctx, all)
+		if err != nil {
+			return nil, err
+		}
+		// checkPositionForMoves loads its own copy of the state, applies the
+		// human's move, and saves it. Reload so pickMove sees the updated turn.
+		theState, err = s.getGame(ctx)
 		if err != nil {
 			return nil, err
 		}

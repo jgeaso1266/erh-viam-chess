@@ -36,6 +36,8 @@ func realMain() error {
 	to := flag.String("to", "", "")
 	n := flag.Int("n", 1, "")
 	fenFile := flag.String("fen-file", "", "path to PGN file for play-fen command")
+	skill := flag.Float64("skill", 0, "engine skill level (0-100) for skill command")
+	mode := flag.String("mode", "", "must be one of \"human\" or \"engine\"")
 
 	flag.Parse()
 
@@ -63,7 +65,7 @@ func realMain() error {
 	}
 
 	if *cmd == "piece-finder" {
-		pf, err := viamchess.NewPieceFinder(ctx, deps, generic.Named("foo"), &viamchess.PieceFinderConfig{"cam"}, logger)
+		pf, err := viamchess.NewPieceFinder(ctx, deps, generic.Named("foo"), &viamchess.PieceFinderConfig{Input: "cam"}, logger)
 		if err != nil {
 			return err
 		}
@@ -164,12 +166,68 @@ func realMain() error {
 		logger.Infof("res: %v", res)
 		return nil
 
+	case "set-mode":
+		if *mode == "" {
+			return fmt.Errorf("set-mode requires -mode <human|engine>")
+		}
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"set-mode": *mode,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
+	case "toggle-mode":
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"toggle-mode": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
+	case "clear-cache":
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"ClearCache": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
+	case "skill":
+		if *skill <= 0 {
+			return fmt.Errorf("skill requires -skill <0-100>")
+		}
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"Skill": *skill,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
+	case "board-snapshot":
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"board-snapshot": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
 	case "play-fen":
 		if *fenFile == "" {
 			return fmt.Errorf("play-fen requires --fen-file")
 		}
 		res, err := thing.DoCommand(ctx, map[string]interface{}{
-			"playfen": *fenFile,
+			"PlayFEN": *fenFile,
 		})
 		if err != nil {
 			return err
@@ -180,6 +238,4 @@ func realMain() error {
 	default:
 		return fmt.Errorf("unknown command [%s]", *cmd)
 	}
-
-	return nil
 }
