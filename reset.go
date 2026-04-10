@@ -6,7 +6,7 @@ import (
 	"github.com/corentings/chess/v2"
 )
 
-var homeRanks = []chess.Rank{chess.Rank1, chess.Rank2, chess.Rank7, chess.Rank8}
+var homeRanks = []chess.Rank{chess.Rank1, chess.Rank2, chess.Rank8, chess.Rank7}
 
 type resetState struct {
 	board          *chess.Board

@@ -63,8 +63,8 @@ func TestReset2(t *testing.T) {
 
 	from, to, err = nextResetMove(theState)
 	test.That(t, err, test.ShouldBeNil)
-	test.That(t, squareToString(from), test.ShouldEqual, "d4")
-	test.That(t, to.String(), test.ShouldEqual, "e7")
+	test.That(t, squareToString(from), test.ShouldEqual, "c6")
+	test.That(t, to.String(), test.ShouldEqual, "b8")
 
 	err = theState.applyMove(from, to)
 	test.That(t, err, test.ShouldBeNil)
@@ -73,8 +73,8 @@ func TestReset2(t *testing.T) {
 
 	from, to, err = nextResetMove(theState)
 	test.That(t, err, test.ShouldBeNil)
-	test.That(t, squareToString(from), test.ShouldEqual, "c6")
-	test.That(t, to.String(), test.ShouldEqual, "b8")
+	test.That(t, squareToString(from), test.ShouldEqual, "d4")
+	test.That(t, to.String(), test.ShouldEqual, "e7")
 
 	err = theState.applyMove(from, to)
 	test.That(t, err, test.ShouldBeNil)
