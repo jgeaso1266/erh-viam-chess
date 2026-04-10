@@ -235,7 +235,7 @@ func realMain() error {
 			return fmt.Errorf("play-fen requires --fen-file")
 		}
 		res, err := thing.DoCommand(ctx, map[string]interface{}{
-			"PlayFEN": *fenFile,
+			"play-fen": *fenFile,
 		})
 		if err != nil {
 			return err
