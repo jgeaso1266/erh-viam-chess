@@ -1293,6 +1293,30 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 	for _, m := range moves {
 		if m.S1() == from && m.S2() == to {
 			s.logger.Infof("found it: %v", m.String())
+
+			// Track captured pieces in the graveyard so that reset
+			// knows where they are (the human placed them physically).
+			if m.HasTag(chess.Capture) {
+				captured := theState.game.Position().Board().Piece(m.S2())
+				if captured != chess.NoPiece {
+					if captured.Color() == chess.White {
+						theState.whiteGraveyard = append(theState.whiteGraveyard, int(captured))
+					} else {
+						theState.blackGraveyard = append(theState.blackGraveyard, int(captured))
+					}
+				}
+			} else if m.HasTag(chess.EnPassant) {
+				// The captured pawn is on the same rank as the moving pawn,
+				// on the file of the destination square.
+				if m.S1().Rank() == chess.Rank5 {
+					// White captures black pawn via en passant.
+					theState.blackGraveyard = append(theState.blackGraveyard, int(chess.BlackPawn))
+				} else {
+					// Black captures white pawn via en passant.
+					theState.whiteGraveyard = append(theState.whiteGraveyard, int(chess.WhitePawn))
+				}
+			}
+
 			err = theState.game.Move(&m, nil)
 			if err != nil {
 				return err
