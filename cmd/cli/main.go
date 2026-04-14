@@ -199,7 +199,7 @@ func realMain() error {
 
 	case "clear-cache":
 		res, err := thing.DoCommand(ctx, map[string]interface{}{
-			"ClearCache": true,
+			"clear-cache": true,
 		})
 		if err != nil {
 			return err

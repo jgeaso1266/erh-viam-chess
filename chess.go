@@ -251,7 +251,7 @@ type cmdStruct struct {
 	Wipe          bool
 	Skill         float64
 	Hover         string
-	ClearCache    bool
+	ClearCache    bool `mapstructure:"clear-cache"`
 	Undo          int
 	PlayFEN       string `mapstructure:"play-fen"`
 	BoardSnapshot bool   `mapstructure:"board-snapshot"`
