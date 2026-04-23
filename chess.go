@@ -65,6 +65,13 @@ type ChessConfig struct {
 	EngineMillis int `json:"engine-millis"`
 
 	CaptureDir string // mostly for vla data
+
+	GrabZ            float64 `json:"grab-z"`             // default 40.0 mm
+	GrabZTall        float64 `json:"grab-z-tall"`        // default 80.0 mm (king/queen)
+	GraveyardSpacingY float64 `json:"graveyard-spacing-y"` // default 80.0 mm per row
+	GraveyardZ       float64 `json:"graveyard-z"`         // default 60.0 mm
+	GripperOpenPos   float64 `json:"gripper-open-pos"`    // default 450.0
+	SkillAdjust      float64 `json:"skill-adjust"`        // initial engine skill, default 50.0
 }
 
 func (cfg *ChessConfig) engine() string {
@@ -79,6 +86,48 @@ func (cfg *ChessConfig) engineMillis() int {
 		return 10
 	}
 	return cfg.EngineMillis
+}
+
+func (cfg *ChessConfig) grabZ() float64 {
+	if cfg.GrabZ <= 0 {
+		return 40.0
+	}
+	return cfg.GrabZ
+}
+
+func (cfg *ChessConfig) grabZTall() float64 {
+	if cfg.GrabZTall <= 0 {
+		return 80.0
+	}
+	return cfg.GrabZTall
+}
+
+func (cfg *ChessConfig) graveyardSpacingY() float64 {
+	if cfg.GraveyardSpacingY <= 0 {
+		return 80.0
+	}
+	return cfg.GraveyardSpacingY
+}
+
+func (cfg *ChessConfig) graveyardZ() float64 {
+	if cfg.GraveyardZ <= 0 {
+		return 60.0
+	}
+	return cfg.GraveyardZ
+}
+
+func (cfg *ChessConfig) gripperOpenPos() float64 {
+	if cfg.GripperOpenPos <= 0 {
+		return 450.0
+	}
+	return cfg.GripperOpenPos
+}
+
+func (cfg *ChessConfig) initialSkillAdjust() float64 {
+	if cfg.SkillAdjust <= 0 {
+		return 50.0
+	}
+	return cfg.SkillAdjust
 }
 
 func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {
@@ -169,7 +218,7 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 		logger:      logger,
 		conf:        conf,
 		cancelFunc:  cancelFunc,
-		skillAdjust: 50,
+		skillAdjust: conf.initialSkillAdjust(),
 		squareXY:    make(map[string]r3.Vector),
 	}
 
@@ -490,10 +539,12 @@ func (s *viamChessChess) graveyardPosition(data viscapture.VisCapture, colorIdx 
 		baseX, baseY = md.Center().X, md.Center().Y
 	}
 
+	spacingY := s.conf.graveyardSpacingY()
+	graveyardZ := s.conf.graveyardZ()
 	if isWhite {
-		return r3.Vector{X: baseX, Y: baseY - float64(ex*80), Z: 60}, nil
+		return r3.Vector{X: baseX, Y: baseY - float64(ex)*spacingY, Z: graveyardZ}, nil
 	}
-	return r3.Vector{X: baseX, Y: baseY + float64(ex*80), Z: 60}, nil
+	return r3.Vector{X: baseX, Y: baseY + float64(ex)*spacingY, Z: graveyardZ}, nil
 }
 
 func (s *viamChessChess) getCenterFor(data viscapture.VisCapture, pos string, theState *state) (r3.Vector, error) {
@@ -643,8 +694,8 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		}
 	}
 
-	const grabZ = 40.0     // grab height for standard pieces (mm)
-	const grabZTall = 80.0 // grab height for king and queen (mm)
+	grabZ := s.conf.grabZ()
+	grabZTall := s.conf.grabZTall()
 
 	// Determine grab height based on piece type.
 	pickupZ := grabZ
@@ -801,7 +852,7 @@ func (s *viamChessChess) setupGripper(ctx context.Context) error {
 	ctx, span := trace.StartSpan(ctx, "setupGripper")
 	defer span.End()
 
-	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"move_gripper": 450.0})
+	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"move_gripper": s.conf.gripperOpenPos()})
 	return err
 }
 
