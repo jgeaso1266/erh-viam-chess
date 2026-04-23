@@ -103,6 +103,7 @@ func realMain() error {
 		PoseStart:   "hack-pose-look-straight-down",
 		Camera:      "cam",
 		CaptureDir:  "captured-data",
+		VideoSaver:  "video-1",
 	}
 	_, _, err = cfg.Validate("")
 	if err != nil {

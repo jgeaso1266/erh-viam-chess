@@ -21,6 +21,7 @@ import (
 
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/components/camera"
+	componentgeneric "go.viam.com/rdk/components/generic"
 	"go.viam.com/rdk/components/gripper"
 	toggleswitch "go.viam.com/rdk/components/switch"
 	"go.viam.com/rdk/logging"
@@ -61,6 +62,8 @@ type ChessConfig struct {
 	Camera  string
 
 	PoseStart string `json:"pose-start"`
+
+	VideoSaver string `json:"video-saver"`
 
 	Engine       string
 	EngineMillis int `json:"engine-millis"`
@@ -151,13 +154,18 @@ func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {
 		deps = append(deps, cfg.Camera)
 	}
 
+	var optionalDeps []string
+	if cfg.VideoSaver != "" {
+		optionalDeps = append(optionalDeps, cfg.VideoSaver)
+	}
+
 	if cfg.CaptureDir != "" {
 		if cfg.Camera == "" {
 			return nil, nil, fmt.Errorf("need a cam if CaptureDir is set")
 		}
 	}
 
-	return deps, nil, nil
+	return deps, optionalDeps, nil
 }
 
 type viamChessChess struct {
@@ -175,6 +183,7 @@ type viamChessChess struct {
 	arm         arm.Arm
 	gripper     gripper.Gripper
 	cam         camera.Camera
+	videoSaver  resource.Resource
 
 	poseStart toggleswitch.Switch
 
@@ -240,6 +249,14 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 		s.cam, err = camera.FromProvider(deps, conf.Camera)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if conf.VideoSaver != "" {
+		s.videoSaver, err = componentgeneric.FromProvider(deps, conf.VideoSaver)
+		if err != nil {
+			logger.Warnf("video-saver %q not found, video recording disabled: %v", conf.VideoSaver, err)
+			s.videoSaver = nil
 		}
 	}
 
@@ -367,10 +384,15 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		}, nil
 	}
 
+	var videoFrom *time.Time
+	var videoTags []string
 	defer func() {
 		err := s.goToStart(ctx)
 		if err != nil {
 			s.logger.Warnf("can't go home: %v", err)
+		}
+		if videoFrom != nil {
+			s.saveVideo(ctx, *videoFrom, time.Now().UTC(), videoTags)
 		}
 	}()
 
@@ -408,6 +430,9 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 	if cmd.Move.To != "" && cmd.Move.From != "" {
 		s.logger.Infof("move %v to %v", cmd.Move.From, cmd.Move.To)
+		now := time.Now().UTC()
+		videoFrom = &now
+		videoTags = []string{"cmd=move", fmt.Sprintf("move=%s%s", cmd.Move.From, cmd.Move.To)}
 
 		for x := range cmd.Move.N {
 			err := s.goToStart(ctx)
@@ -434,11 +459,18 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	}
 
 	if cmd.Go > 0 {
-		m, err := s.makeNMoves(ctx, cmd.Go)
+		now := time.Now().UTC()
+		videoFrom = &now
+		videoTags = []string{"cmd=go", fmt.Sprintf("go=%d", cmd.Go)}
+		moves, err := s.makeNMoves(ctx, cmd.Go)
+		for _, m := range moves {
+			videoTags = append(videoTags, "move="+m.String())
+		}
 		if err != nil {
 			return nil, err
 		}
-		return map[string]interface{}{"move": m.String()}, nil
+		last := moves[len(moves)-1]
+		return map[string]interface{}{"move": last.String()}, nil
 	}
 
 	if cmd.Undo > 0 {
@@ -455,6 +487,24 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	}
 
 	return nil, fmt.Errorf("bad cmd %v", cmdMap)
+}
+
+const videoSaverTimeFormat = "2006-01-02_15-04-05"
+
+func (s *viamChessChess) saveVideo(ctx context.Context, from, to time.Time, tags []string) {
+	if s.videoSaver == nil {
+		return
+	}
+	_, err := s.videoSaver.DoCommand(ctx, map[string]interface{}{
+		"command": "save",
+		"from":    from.UTC().Format(videoSaverTimeFormat) + "Z",
+		"to":      to.UTC().Format(videoSaverTimeFormat) + "Z",
+		"tags":    tags,
+		"async":   true,
+	})
+	if err != nil {
+		s.logger.Warnf("video save failed: %v", err)
+	}
 }
 
 func (s *viamChessChess) Close(ctx context.Context) error {
@@ -982,16 +1032,16 @@ func (s *viamChessChess) pickMove(ctx context.Context, game *chess.Game) (*chess
 
 }
 
-func (s *viamChessChess) makeNMoves(ctx context.Context, n int) (*chess.Move, error) {
-	var m *chess.Move
+func (s *viamChessChess) makeNMoves(ctx context.Context, n int) ([]*chess.Move, error) {
+	moves := make([]*chess.Move, 0, n)
 	for i := range n {
-		var err error
-		m, err = s.makeAMove(ctx, i == 0)
+		m, err := s.makeAMove(ctx, i == 0)
 		if err != nil {
-			return nil, err
+			return moves, err
 		}
+		moves = append(moves, m)
 	}
-	return m, nil
+	return moves, nil
 }
 
 func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*chess.Move, error) {
