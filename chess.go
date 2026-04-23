@@ -42,8 +42,6 @@ import (
 
 var ChessModel = family.WithModel("chess")
 
-const safeZ = 350.0
-
 // gripperFrame is the frame used for pose calculations and motion planning.
 // With the longer gripper add-on, planning targets the tip of the add-on
 // rather than the bare gripper component.
@@ -71,10 +69,13 @@ type ChessConfig struct {
 
 	CaptureDir string // mostly for vla data
 
-	GrabZ             float64 `json:"grab-z"`              // default 45.0 mm
-	GraveyardSpacingY float64 `json:"graveyard-spacing-y"` // default 80.0 mm per row
-	GraveyardZ        float64 `json:"graveyard-z"`         // default 60.0 mm
-	GripperOpenPos    float64 `json:"gripper-open-pos"`    // default 350.0
+	SafeZ                 float64 `json:"safe-z"`                  // default 350.0 mm (transit height)
+	GrabZ                 float64 `json:"grab-z"`                  // default 45.0 mm
+	GraveyardSpacingY     float64 `json:"graveyard-spacing-y"`     // default 80.0 mm per row
+	GraveyardZ            float64 `json:"graveyard-z"`             // default 60.0 mm
+	GripperOpenPos        float64 `json:"gripper-open-pos"`        // default 350.0
+	GripperClosePos       float64 `json:"gripper-close-pos"`       // default 220.0
+	GripperCloseThreshold float64 `json:"gripper-close-threshold"` // default 253.0 (success if gripper reaches this)
 	SkillAdjust       float64 `json:"skill-adjust"`        // initial engine skill, default 50.0
 }
 
@@ -90,6 +91,13 @@ func (cfg *ChessConfig) engineMillis() int {
 		return 10
 	}
 	return cfg.EngineMillis
+}
+
+func (cfg *ChessConfig) safeZ() float64 {
+	if cfg.SafeZ <= 0 {
+		return 350.0
+	}
+	return cfg.SafeZ
 }
 
 func (cfg *ChessConfig) grabZ() float64 {
@@ -118,6 +126,20 @@ func (cfg *ChessConfig) gripperOpenPos() float64 {
 		return 350.0
 	}
 	return cfg.GripperOpenPos
+}
+
+func (cfg *ChessConfig) gripperClosePos() float64 {
+	if cfg.GripperClosePos <= 0 {
+		return 220.0
+	}
+	return cfg.GripperClosePos
+}
+
+func (cfg *ChessConfig) gripperCloseThreshold() float64 {
+	if cfg.GripperCloseThreshold <= 0 {
+		return 253.0
+	}
+	return cfg.GripperCloseThreshold
 }
 
 func (cfg *ChessConfig) initialSkillAdjust() float64 {
@@ -691,6 +713,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		}
 	}
 
+	safeZ := s.conf.safeZ()
 	pickupZ := s.conf.grabZ()
 
 	// Pick up from source square.
@@ -1298,8 +1321,10 @@ func (s *viamChessChess) myGrab(ctx context.Context) (bool, error) {
 		p := pose.Pose().Point()
 		s.logger.Infof("myGrab: pose before close = {x:%.1f y:%.1f z:%.1f}", p.X, p.Y, p.Z)
 	}
-	s.logger.Infof("myGrab: sending {setup_gripper:true, move_gripper:220}")
-	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"setup_gripper": true, "move_gripper": 220.0})
+	closePos := s.conf.gripperClosePos()
+	closeThreshold := s.conf.gripperCloseThreshold()
+	s.logger.Infof("myGrab: sending {setup_gripper:true, move_gripper:%.0f}", closePos)
+	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"setup_gripper": true, "move_gripper": closePos})
 	if err != nil {
 		s.logger.Warnf("myGrab: close error %v", err)
 		return false, err
@@ -1323,7 +1348,7 @@ func (s *viamChessChess) myGrab(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("Why is get_gripper weird %v", res)
 		}
 		s.logger.Infof("myGrab: poll gripper_position = %v", p)
-		if p <= 253 {
+		if p <= closeThreshold {
 			break
 		}
 	}
