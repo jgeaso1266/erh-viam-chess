@@ -1,9 +1,13 @@
 package viamchess
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
 	"github.com/corentings/chess/v2"
+
+	"go.viam.com/rdk/vision/viscapture"
 )
 
 var homeRanks = []chess.Rank{chess.Rank1, chess.Rank2, chess.Rank8, chess.Rank7}
@@ -100,4 +104,65 @@ func nextResetMove(theState *resetState) (chess.Square, chess.Square, error) {
 	}
 
 	return -1, -1, nil
+}
+
+func (s *viamChessChess) resetBoard(ctx context.Context) error {
+	theMainState, err := s.getGame(ctx)
+	if err != nil {
+		return err
+	}
+
+	theState := &resetState{
+		board:          theMainState.game.Position().Board(),
+		whiteGraveyard: theMainState.whiteGraveyard,
+		blackGraveyard: theMainState.blackGraveyard,
+	}
+
+	// Clear stale cache — the board has moved since the last game.
+	s.clearSquareCache()
+
+	// One snapshot before the loop to populate the square cache.
+	err = s.goToStart(ctx)
+	if err != nil {
+		return err
+	}
+	all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+	if err != nil {
+		return err
+	}
+	s.populateCacheFromCapture(all)
+
+	for {
+		from, to, err := nextResetMove(theState)
+		if err != nil {
+			return err
+		}
+		if from < 0 {
+			break
+		}
+
+		fromStr := squareToString(from)
+		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), nil, theState.board)
+		if err != nil {
+			return err
+		}
+
+		// Mark the source square as empty in the snapshot so that subsequent
+		// movePiece calls don't see stale occupancy data.
+		if from < 70 { // board square, not a graveyard slot
+			for _, o := range all.Objects {
+				if strings.HasPrefix(o.Geometry.Label(), fromStr+"-") {
+					o.Geometry.SetLabel(fromStr + "-0")
+					break
+				}
+			}
+		}
+
+		err = theState.applyMove(from, to)
+		if err != nil {
+			return err
+		}
+	}
+
+	return s.wipe(ctx)
 }
