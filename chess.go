@@ -366,10 +366,24 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 				cameraBoard[label[:idx]] = label[idx+1:]
 			}
 		}
+		whiteGY := make([]interface{}, 0, len(theState.whiteGraveyard))
+		for _, p := range theState.whiteGraveyard {
+			if s := pieceIntToFEN(p); s != "" {
+				whiteGY = append(whiteGY, s)
+			}
+		}
+		blackGY := make([]interface{}, 0, len(theState.blackGraveyard))
+		for _, p := range theState.blackGraveyard {
+			if s := pieceIntToFEN(p); s != "" {
+				blackGY = append(blackGY, s)
+			}
+		}
 		return map[string]interface{}{
-			"fen":          theState.game.FEN(),
-			"camera_board": cameraBoard,
-			"mode":         s.currentMode(),
+			"fen":             theState.game.FEN(),
+			"camera_board":    cameraBoard,
+			"mode":            s.currentMode(),
+			"white_graveyard": whiteGY,
+			"black_graveyard": blackGY,
 		}, nil
 	}
 
@@ -939,6 +953,18 @@ func readState(ctx context.Context, fn string) (*state, error) {
 		return nil, fmt.Errorf("invalid fen from (%s) (%s) %w", fn, data, err)
 	}
 	return &state{game: chess.NewGame(f), whiteGraveyard: ss.WhiteGraveyard, blackGraveyard: ss.BlackGraveyard}, nil
+}
+
+func pieceIntToFEN(p int) string {
+	piece := chess.Piece(p)
+	if piece == chess.NoPiece {
+		return ""
+	}
+	s := piece.Type().String()
+	if piece.Color() == chess.White {
+		return strings.ToUpper(s)
+	}
+	return s
 }
 
 func (s *viamChessChess) saveGame(ctx context.Context, theState *state) error {

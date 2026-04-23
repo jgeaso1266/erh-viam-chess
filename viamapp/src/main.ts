@@ -121,6 +121,19 @@ function makeSquare(ri: number, ci: number, piece: string | null): HTMLTableCell
   return td;
 }
 
+// ── Graveyard rendering ────────────────────────────────────────────────────
+
+function renderGraveyard(elementId: string, pieces: string[]) {
+  const el = document.getElementById(elementId)!;
+  el.innerHTML = "";
+  for (const fen of pieces) {
+    const span = document.createElement("span");
+    span.className = "graveyard-piece " + (fen === fen.toUpperCase() ? "piece-white" : "piece-black");
+    span.textContent = PIECE_UNICODE[fen] ?? "";
+    el.appendChild(span);
+  }
+}
+
 // ── Camera board rendering ─────────────────────────────────────────────────
 
 function renderCameraBoard(cameraBoard: Record<string, string>) {
@@ -222,6 +235,8 @@ async function refreshState() {
       document.getElementById("camera-board-section")!.classList.remove("hidden");
     }
     if (typeof res.mode === "string") setMode(res.mode);
+    if (Array.isArray(res.white_graveyard)) renderGraveyard("white-graveyard", res.white_graveyard as string[]);
+    if (Array.isArray(res.black_graveyard)) renderGraveyard("black-graveyard", res.black_graveyard as string[]);
   } catch (e) {
     console.error("refresh failed", e);
   } finally {

@@ -154,6 +154,15 @@ button.sm     { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
 .tag-wipe   { background: #b71c1c; }
 .tag-cache  { background: #37474f; }
 
+/* ── Graveyards ── */
+.graveyard-section { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.6rem; width: 100%; }
+.graveyard-row { display: flex; align-items: center; gap: 0.5rem; min-height: 1.6rem; }
+.graveyard-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .06em; color: #888; width: 100px; flex-shrink: 0; }
+.graveyard { display: flex; flex-wrap: wrap; gap: 1px; background: #12122a; border-radius: 4px; padding: 2px 4px; min-height: 1.6rem; flex: 1; }
+.graveyard-piece { font-size: 1.3rem; line-height: 1; user-select: none; }
+.graveyard-piece.piece-white { color: #f0f0f0; -webkit-text-stroke: 0.4px #777; }
+.graveyard-piece.piece-black { color: #999; -webkit-text-stroke: 0.4px #555; }
+
 /* ── Spinner ── */
 .spinner-overlay {
   position: fixed; inset: 0;
