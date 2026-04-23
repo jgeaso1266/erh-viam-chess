@@ -42,12 +42,7 @@ import (
 
 var ChessModel = family.WithModel("chess")
 
-const safeZ = 350.0
-
-// gripperFrame is the frame used for pose calculations and motion planning.
-// With the longer gripper add-on, planning targets the tip of the add-on
-// rather than the bare gripper component.
-const gripperFrame = "gripper-add-on"
+const safeZ = 200.0
 
 func init() {
 	resource.RegisterService(generic.API, ChessModel,
@@ -71,10 +66,11 @@ type ChessConfig struct {
 
 	CaptureDir string // mostly for vla data
 
-	GrabZ             float64 `json:"grab-z"`              // default 45.0 mm
+	GrabZ             float64 `json:"grab-z"`              // default 40.0 mm
+	GrabZTall         float64 `json:"grab-z-tall"`         // default 80.0 mm (king/queen)
 	GraveyardSpacingY float64 `json:"graveyard-spacing-y"` // default 80.0 mm per row
 	GraveyardZ        float64 `json:"graveyard-z"`         // default 60.0 mm
-	GripperOpenPos    float64 `json:"gripper-open-pos"`    // default 350.0
+	GripperOpenPos    float64 `json:"gripper-open-pos"`    // default 450.0
 	SkillAdjust       float64 `json:"skill-adjust"`        // initial engine skill, default 50.0
 }
 
@@ -94,9 +90,16 @@ func (cfg *ChessConfig) engineMillis() int {
 
 func (cfg *ChessConfig) grabZ() float64 {
 	if cfg.GrabZ <= 0 {
-		return 45.0
+		return 40.0
 	}
 	return cfg.GrabZ
+}
+
+func (cfg *ChessConfig) grabZTall() float64 {
+	if cfg.GrabZTall <= 0 {
+		return 80.0
+	}
+	return cfg.GrabZTall
 }
 
 func (cfg *ChessConfig) graveyardSpacingY() float64 {
@@ -115,7 +118,7 @@ func (cfg *ChessConfig) graveyardZ() float64 {
 
 func (cfg *ChessConfig) gripperOpenPos() float64 {
 	if cfg.GripperOpenPos <= 0 {
-		return 350.0
+		return 450.0
 	}
 	return cfg.GripperOpenPos
 }
@@ -691,7 +694,24 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		}
 	}
 
-	pickupZ := s.conf.grabZ()
+	grabZ := s.conf.grabZ()
+	grabZTall := s.conf.grabZTall()
+
+	// Determine grab height based on piece type.
+	pickupZ := grabZ
+	var pieceBoard *chess.Board
+	if theState != nil {
+		pieceBoard = theState.game.Position().Board()
+	} else if board != nil {
+		pieceBoard = board
+	}
+	if pieceBoard != nil && len(from) == 2 {
+		sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
+		pt := pieceBoard.Piece(sq).Type()
+		if pt == chess.King || pt == chess.Queen {
+			pickupZ = grabZTall
+		}
+	}
 
 	// Pick up from source square.
 	{
@@ -700,15 +720,11 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			return err
 		}
 
-		s.logger.Infof("pickup %s: xy = {x:%.1f y:%.1f} safeZ=%.1f pickupZ=%.1f", from, xy.X, xy.Y, safeZ, pickupZ)
-
-		s.logger.Infof("pickup %s: step 1 — open gripper", from)
 		err = s.setupGripper(ctx)
 		if err != nil {
 			return err
 		}
 
-		s.logger.Infof("pickup %s: step 2 — hover above piece at z=%.1f", from, safeZ)
 		err = s.moveGripper(ctx, r3.Vector{X: xy.X, Y: xy.Y, Z: safeZ})
 		if err != nil {
 			return err
@@ -717,16 +733,13 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		grabPos := r3.Vector{X: xy.X, Y: xy.Y, Z: pickupZ}
 
 		tryGrab := func(pos r3.Vector) (bool, error) {
-			s.logger.Infof("pickup %s: step 3 — re-assert open gripper", from)
 			if err := s.setupGripper(ctx); err != nil {
 				return false, err
 			}
 			time.Sleep(500 * time.Millisecond)
-			s.logger.Infof("pickup %s: step 4 — descend to grab z=%.1f at {x:%.1f y:%.1f}", from, pos.Z, pos.X, pos.Y)
 			if err := s.moveGripper(ctx, pos); err != nil {
 				return false, err
 			}
-			s.logger.Infof("pickup %s: step 5 — close gripper", from)
 			return s.myGrab(ctx)
 		}
 
@@ -745,7 +758,6 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			return fmt.Errorf("couldn't grab piece at %s after 2 attempts", from)
 		}
 
-		s.logger.Infof("pickup %s: step 6 — rise back to z=%.1f", from, safeZ)
 		err = s.moveGripper(ctx, r3.Vector{X: xy.X, Y: xy.Y, Z: safeZ})
 		if err != nil {
 			return err
@@ -828,7 +840,7 @@ func (s *viamChessChess) goToStart(ctx context.Context) error {
 
 	time.Sleep(time.Millisecond * 250)
 
-	s.startPose, err = s.rfs.GetPose(ctx, gripperFrame, "world", nil, nil)
+	s.startPose, err = s.rfs.GetPose(ctx, s.conf.Gripper, "world", nil, nil)
 	if err != nil {
 		return err
 	}
@@ -840,18 +852,8 @@ func (s *viamChessChess) setupGripper(ctx context.Context) error {
 	ctx, span := trace.StartSpan(ctx, "setupGripper")
 	defer span.End()
 
-	openPos := s.conf.gripperOpenPos()
-	s.logger.Infof("setupGripper: sending {setup_gripper:true, move_gripper:%.0f}", openPos)
-	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"setup_gripper": true, "move_gripper": openPos})
-	if err != nil {
-		s.logger.Warnf("setupGripper: error %v", err)
-		return err
-	}
-	if pose, perr := s.rfs.GetPose(ctx, gripperFrame, "world", nil, nil); perr == nil {
-		p := pose.Pose().Point()
-		s.logger.Infof("setupGripper: pose after = {x:%.1f y:%.1f z:%.1f}", p.X, p.Y, p.Z)
-	}
-	return nil
+	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"move_gripper": s.conf.gripperOpenPos()})
+	return err
 }
 
 func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector) error {
@@ -863,26 +865,25 @@ func (s *viamChessChess) moveGripper(ctx context.Context, p r3.Vector) error {
 		Theta: s.startPose.Pose().Orientation().OrientationVectorDegrees().Theta - 180,
 	}
 
-	s.logger.Infof("moveGripper: requesting pose = {x:%.1f y:%.1f z:%.1f} orient = {ox:%.3f oy:%.3f oz:%.3f theta:%.3f}",
-		p.X, p.Y, p.Z, orientation.OX, orientation.OY, orientation.OZ, orientation.Theta)
+	if p.X > 300 {
+		orientation.OX = (p.X - 300) / 1000
+	}
+
+	if p.Y < -300 {
+		orientation.OY = (p.Y + 300) / 300
+		orientation.OX += .2
+	}
 
 	myPose := spatialmath.NewPose(p, orientation)
 	myConstraints := &motionplan.Constraints{}
 	myConstraints.AddOrientationConstraint(motionplan.OrientationConstraint{OrientationToleranceDegs: 45})
 	_, err := s.motion.Move(ctx, motion.MoveReq{
-		ComponentName: gripperFrame,
+		ComponentName: s.conf.Gripper,
 		Destination:   referenceframe.NewPoseInFrame("world", myPose),
 		Constraints:   myConstraints,
 	})
 	if err != nil {
-		s.logger.Warnf("moveGripper: motion.Move error %v", err)
 		return fmt.Errorf("can't move to %v: %w", myPose, err)
-	}
-	if pose, perr := s.rfs.GetPose(ctx, gripperFrame, "world", nil, nil); perr == nil {
-		ap := pose.Pose().Point()
-		ao := pose.Pose().Orientation().OrientationVectorDegrees()
-		s.logger.Infof("moveGripper: achieved pose = {x:%.1f y:%.1f z:%.1f} orient = {ox:%.3f oy:%.3f oz:%.3f theta:%.3f}",
-			ap.X, ap.Y, ap.Z, ao.OX, ao.OY, ao.OZ, ao.Theta)
 	}
 	return nil
 }
@@ -1294,46 +1295,31 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 }
 
 func (s *viamChessChess) myGrab(ctx context.Context) (bool, error) {
-	if pose, perr := s.rfs.GetPose(ctx, gripperFrame, "world", nil, nil); perr == nil {
-		p := pose.Pose().Point()
-		s.logger.Infof("myGrab: pose before close = {x:%.1f y:%.1f z:%.1f}", p.X, p.Y, p.Z)
-	}
-	s.logger.Infof("myGrab: sending {setup_gripper:true, move_gripper:220}")
-	_, err := s.arm.DoCommand(ctx, map[string]interface{}{"setup_gripper": true, "move_gripper": 220.0})
+	got, err := s.gripper.Grab(ctx, nil)
 	if err != nil {
-		s.logger.Warnf("myGrab: close error %v", err)
 		return false, err
 	}
 
-	// Wait for the gripper to close tightly on the piece.
-	var p float64
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if time.Now().After(deadline) {
-			return false, fmt.Errorf("myGrab: timed out waiting for gripper to close (last position=%v)", p)
-		}
-		time.Sleep(100 * time.Millisecond)
-		res, err := s.arm.DoCommand(ctx, map[string]interface{}{"get_gripper": true})
-		if err != nil {
-			return false, err
-		}
-		var ok bool
-		p, ok = res["gripper_position"].(float64)
-		if !ok {
-			return false, fmt.Errorf("Why is get_gripper weird %v", res)
-		}
-		s.logger.Infof("myGrab: poll gripper_position = %v", p)
-		if p <= 253 {
-			break
-		}
+	time.Sleep(300 * time.Millisecond)
+
+	res, err := s.arm.DoCommand(ctx, map[string]interface{}{"get_gripper": true})
+	if err != nil {
+		return false, err
 	}
 
-	if pose, perr := s.rfs.GetPose(ctx, gripperFrame, "world", nil, nil); perr == nil {
-		pt := pose.Pose().Point()
-		s.logger.Infof("myGrab: pose after close settled = {x:%.1f y:%.1f z:%.1f}", pt.X, pt.Y, pt.Z)
+	p, ok := res["gripper_position"].(float64)
+	if !ok {
+		return false, fmt.Errorf("Why is get_gripper weird %v", res)
 	}
 
-	return true, nil
+	s.logger.Debugf("gripper res: %v", res)
+
+	if p < 20 && got {
+		s.logger.Warnf("grab said we got, but i think no res: %v", res)
+		return false, nil
+	}
+
+	return got, nil
 }
 
 func (s *viamChessChess) resetBoard(ctx context.Context) error {
