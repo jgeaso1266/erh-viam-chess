@@ -182,7 +182,7 @@ button.sm     { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
 .graveyard-row { display: flex; align-items: center; gap: 0.5rem; min-height: 1.6rem; margin-top: 0.25rem; }
 .graveyard-row:first-of-type { margin-top: 0; }
 .graveyard-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .06em; color: #888; width: 44px; flex-shrink: 0; }
-.graveyard { display: flex; flex-wrap: wrap; gap: 1px; background: #12122a; border-radius: 4px; padding: 2px 4px; min-height: 1.6rem; flex: 1; }
+.graveyard { display: flex; flex-wrap: wrap; gap: 1px; background: #3a4060; border-radius: 4px; padding: 2px 4px; min-height: 1.6rem; flex: 1; }
 .graveyard-piece {
   display: block;
   width: 1.4rem;
