@@ -40,7 +40,7 @@ body {
 }
 
 .app {
-  min-height: 100%;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -372,8 +372,12 @@ body {
 }
 .captured-column.black-lost {
   padding: 4px 6px;
-  background: rgba(255, 255, 255, 0.08);
-  border-left: 2px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.18);
+  border-left: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 2px;
+}
+.captured-column.black-lost .captured-piece {
+  filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.9));
 }
 .captured-column .empty {
   font-size: 10px;

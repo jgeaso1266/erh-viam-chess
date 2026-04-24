@@ -499,7 +499,9 @@ function renderTape() {
     if (it.kind === "move") { lastMoveIdx = it.i; break; }
   }
 
-  tapeItems.forEach((it) => {
+  // Newest first — iterate in reverse.
+  for (let k = tapeItems.length - 1; k >= 0; k--) {
+    const it = tapeItems[k];
     if (it.kind === "evt") {
       const row = document.createElement("div");
       row.className = "tape-evt";
@@ -513,7 +515,7 @@ function renderTape() {
       row.appendChild(tag);
       row.appendChild(label);
       tapeEl.appendChild(row);
-      return;
+      continue;
     }
     const row = document.createElement("div");
     row.className = "tape-row";
@@ -536,14 +538,13 @@ function renderTape() {
     row.appendChild(san);
     row.appendChild(coord);
     tapeEl.appendChild(row);
-  });
-
-  tapeEl.scrollTop = tapeEl.scrollHeight;
+  }
 }
 
 function pushEvent(type: EvtType, label: string) {
   tapeItems.push({ kind: "evt", type, label });
   renderTape();
+  persistState();
 }
 
 // ── Inline error popovers ──────────────────────────────────────────────────
@@ -616,11 +617,44 @@ function pushMoveToTape(from: string, to: string, san: string) {
   lastMove = { from, to, san };
   renderTape();
   renderTopStatus();
+  persistState();
 }
 
 function resetTape() {
   tapeItems = [];
   plyCount = 0;
+  persistState();
+}
+
+// ── Persistence ────────────────────────────────────────────────────────────
+// Client-only state (tape, ply count, last-move readout, auto-mode toggle)
+// survives a page reload. Graveyards/board come from the server on reconnect.
+
+const STORAGE_KEY = "garry.chess.state.v1";
+
+function persistState() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ tapeItems, plyCount, autoMode, lastMove })
+    );
+  } catch (e) {
+    console.warn("[persist] save failed", e);
+  }
+}
+
+function loadPersistedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.tapeItems)) tapeItems = data.tapeItems;
+    if (typeof data.plyCount === "number") plyCount = data.plyCount;
+    if (typeof data.autoMode === "boolean") autoMode = data.autoMode;
+    if (data.lastMove && typeof data.lastMove.from === "string") lastMove = data.lastMove;
+  } catch (e) {
+    console.warn("[persist] load failed", e);
+  }
 }
 
 // ── Refresh ────────────────────────────────────────────────────────────────
@@ -648,6 +682,7 @@ function startAutoRefresh() {
 function setAutoMode(enabled: boolean) {
   autoMode = enabled;
   pushEvent("go", `auto: ${enabled ? "on" : "off"}`);
+  persistState();
 }
 
 function startDetectionPoll() {
@@ -938,9 +973,16 @@ if (new URLSearchParams(window.location.search).has("compact")) {
   document.querySelector(".app")?.classList.remove("kiosk");
 }
 
+loadPersistedState();
+// Sync the Auto checkbox to the persisted value (quietly, without pushing an event).
+{
+  const autoCheckbox = document.getElementById("auto-mode") as HTMLInputElement | null;
+  if (autoCheckbox) autoCheckbox.checked = autoMode;
+}
 renderBoard();
 renderMaterial();
 renderTape();
+renderTopStatus();
 
 connect()
   .then(refreshState)
