@@ -31,39 +31,64 @@ nav {
   overflow: hidden;
 }
 
-/* ── Boards ── */
-.boards-row { display: flex; flex-direction: row; gap: 1.5rem; align-items: flex-start; }
-.board-section { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+/* ── Board ── */
+.board-section { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
 .board-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .07em; color: #e94560; }
 .hidden { display: none !important; }
 
-#board, #camera-board { display: inline-block; }
+#board { display: inline-block; }
 
-table.chess-table { border-collapse: collapse; border: 2px solid #555; }
+table.chess-table {
+  border-collapse: collapse;
+  border: 2px solid #555;
+  --sq: clamp(56px, 9.5vmin, 104px);
+}
 .chess-square {
-  width: 64px; height: 64px;
+  width: var(--sq); height: var(--sq);
   text-align: center; vertical-align: middle;
   cursor: default;
+  position: relative;
 }
 .chess-square.light { background: #f0d9b5; }
 .chess-square.dark  { background: #b58863; }
 .rank-label { width: 22px; color: #888; font-size: 0.75rem; text-align: center; }
 .file-label { height: 22px; color: #888; font-size: 0.75rem; text-align: center; }
-.chess-piece { font-size: 2.6rem; line-height: 1; user-select: none; }
+.chess-piece {
+  font-size: calc(var(--sq) * 0.72);
+  line-height: 1;
+  user-select: none;
+  position: relative;
+  z-index: 1;
+}
 .chess-piece.piece-white { color: #fff; -webkit-text-stroke: 0.5px #777; }
 .chess-piece.piece-black { color: #1a1a1a; -webkit-text-stroke: 0.5px #777; }
 
 #turn-indicator { font-size: 0.85rem; color: #aaa; }
 
-/* ── Camera board indicators ── */
-.cam-white, .cam-black {
-  display: block;
-  width: 36px; height: 36px;
+/* ── Camera reading: corner dot + discrepancy tint ── */
+.cam-dot {
+  position: absolute;
+  right: calc(var(--sq) * 0.08);
+  bottom: calc(var(--sq) * 0.08);
+  width: calc(var(--sq) * 0.18);
+  height: calc(var(--sq) * 0.18);
   border-radius: 50%;
-  margin: auto;
+  z-index: 1;
 }
-.cam-white { background: #fff; box-shadow: 0 0 4px rgba(0,0,0,.4); }
-.cam-black { background: #1a1a1a; box-shadow: 0 0 4px rgba(255,255,255,.2); }
+.cam-dot-white { background: #fff; border: 1px solid #444; }
+.cam-dot-black { background: #111; border: 1px solid #ccc; }
+
+.chess-square.cam-phantom::after,
+.chess-square.cam-missing::after,
+.chess-square.cam-wrongcolor::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.chess-square.cam-phantom::after,
+.chess-square.cam-wrongcolor::after { background: rgba(233, 69, 96, 0.25); }
+.chess-square.cam-missing::after    { background: rgba(255, 152, 0, 0.3); }
 
 /* ── Controls ── */
 .controls-col {

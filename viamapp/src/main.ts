@@ -64,7 +64,9 @@ async function doCommand(cmd: Record<string, unknown>): Promise<Record<string, J
 
 // ── Board rendering ────────────────────────────────────────────────────────
 
-function renderBoard(fen: string) {
+type Color = "white" | "black" | null;
+
+function renderBoard(fen: string, cameraBoard: Record<string, string> | null) {
   const boardEl = document.getElementById("board")!;
   const parts = fen.split(" ");
   const placement = parts[0];
@@ -84,9 +86,9 @@ function renderBoard(fen: string) {
     let ci = 0;
     for (const ch of row) {
       if (ch >= "1" && ch <= "8") {
-        for (let i = 0; i < parseInt(ch); i++) tr.appendChild(makeSquare(ri, ci++, null));
+        for (let i = 0; i < parseInt(ch); i++) tr.appendChild(makeSquare(ri, ci++, null, cameraBoard));
       } else {
-        tr.appendChild(makeSquare(ri, ci++, ch));
+        tr.appendChild(makeSquare(ri, ci++, ch, cameraBoard));
       }
     }
     table.appendChild(tr);
@@ -109,15 +111,36 @@ function renderBoard(fen: string) {
   turn.textContent = activeColor === "w" ? "White to move" : "Black to move";
 }
 
-function makeSquare(ri: number, ci: number, piece: string | null): HTMLTableCellElement {
+function makeSquare(ri: number, ci: number, piece: string | null, cameraBoard: Record<string, string> | null): HTMLTableCellElement {
   const td = document.createElement("td");
   td.className = "chess-square " + ((ri + ci) % 2 === 0 ? "light" : "dark");
+
   if (piece) {
     const span = document.createElement("span");
     span.className = "chess-piece " + (piece === piece.toUpperCase() ? "piece-white" : "piece-black");
     span.textContent = PIECE_UNICODE[piece] ?? "";
     td.appendChild(span);
   }
+
+  if (cameraBoard) {
+    const square = "abcdefgh"[ci] + String(8 - ri);
+    const reading = cameraBoard[square] ?? "0";
+    const expected: Color = piece ? (piece === piece.toUpperCase() ? "white" : "black") : null;
+    const seen: Color = reading === "1" ? "white" : reading === "2" ? "black" : null;
+
+    if (seen) {
+      const dot = document.createElement("span");
+      dot.className = "cam-dot " + (seen === "white" ? "cam-dot-white" : "cam-dot-black");
+      td.appendChild(dot);
+    }
+
+    if (expected !== seen) {
+      if (expected === null) td.classList.add("cam-phantom");
+      else if (seen === null) td.classList.add("cam-missing");
+      else td.classList.add("cam-wrongcolor");
+    }
+  }
+
   return td;
 }
 
@@ -132,51 +155,6 @@ function renderGraveyard(elementId: string, pieces: string[]) {
     span.textContent = PIECE_UNICODE[fen] ?? "";
     el.appendChild(span);
   }
-}
-
-// ── Camera board rendering ─────────────────────────────────────────────────
-
-function renderCameraBoard(cameraBoard: Record<string, string>) {
-  const el = document.getElementById("camera-board")!;
-  const table = document.createElement("table");
-  table.className = "chess-table";
-
-  for (let rank = 8; rank >= 1; rank--) {
-    const tr = document.createElement("tr");
-    const rankTd = document.createElement("td");
-    rankTd.className = "rank-label";
-    rankTd.textContent = String(rank);
-    tr.appendChild(rankTd);
-
-    for (let fi = 0; fi < 8; fi++) {
-      const file = "abcdefgh"[fi];
-      const square = file + rank;
-      const color = cameraBoard[square] ?? "0";
-      const ri = 8 - rank;
-      const td = document.createElement("td");
-      td.className = "chess-square " + ((ri + fi) % 2 === 0 ? "light" : "dark");
-      if (color !== "0") {
-        const dot = document.createElement("span");
-        dot.className = color === "1" ? "cam-white" : "cam-black";
-        td.appendChild(dot);
-      }
-      tr.appendChild(td);
-    }
-    table.appendChild(tr);
-  }
-
-  const fileTr = document.createElement("tr");
-  fileTr.appendChild(document.createElement("td"));
-  for (const f of "abcdefgh") {
-    const td = document.createElement("td");
-    td.className = "file-label";
-    td.textContent = f;
-    fileTr.appendChild(td);
-  }
-  table.appendChild(fileTr);
-
-  el.innerHTML = "";
-  el.appendChild(table);
 }
 
 // ── History ────────────────────────────────────────────────────────────────
@@ -216,11 +194,10 @@ async function refreshState() {
   refreshInFlight = true;
   try {
     const res = await doCommand({ "board-snapshot": true });
-    if (typeof res.fen === "string") renderBoard(res.fen);
-    if (res.camera_board && typeof res.camera_board === "object") {
-      renderCameraBoard(res.camera_board as Record<string, string>);
-      document.getElementById("camera-board-section")!.classList.remove("hidden");
-    }
+    const cameraBoard = res.camera_board && typeof res.camera_board === "object"
+      ? (res.camera_board as Record<string, string>)
+      : null;
+    if (typeof res.fen === "string") renderBoard(res.fen, cameraBoard);
     if (Array.isArray(res.white_graveyard)) renderGraveyard("white-graveyard", res.white_graveyard as string[]);
     if (Array.isArray(res.black_graveyard)) renderGraveyard("black-graveyard", res.black_graveyard as string[]);
   } catch (e) {
