@@ -14,19 +14,8 @@
 
     <div class="layout">
       <div class="board-section">
-        <div class="board-label">Game State</div>
         <div id="board"></div>
         <div id="turn-indicator"></div>
-        <div class="graveyard-section">
-          <div class="graveyard-row">
-            <span class="graveyard-label">Captured black pieces</span>
-            <div id="black-graveyard" class="graveyard"></div>
-          </div>
-          <div class="graveyard-row">
-            <span class="graveyard-label">Captured white pieces</span>
-            <div id="white-graveyard" class="graveyard"></div>
-          </div>
-        </div>
       </div>
 
       <div class="controls-col">
@@ -47,6 +36,18 @@
             <input id="move-to" type="text" placeholder="e4" maxlength="2" class="sq-input" />
             <input id="move-n" type="number" value="1" min="1" class="n-input" />
             <button id="btn-move" class="btn-secondary">Move</button>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Captured</h3>
+          <div class="graveyard-row">
+            <span class="graveyard-label">Black</span>
+            <div id="black-graveyard" class="graveyard"></div>
+          </div>
+          <div class="graveyard-row">
+            <span class="graveyard-label">White</span>
+            <div id="white-graveyard" class="graveyard"></div>
           </div>
         </section>
 

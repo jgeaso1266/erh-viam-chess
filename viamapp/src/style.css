@@ -32,7 +32,15 @@ nav {
 }
 
 /* ── Board ── */
-.board-section { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
+.board-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  --sq: clamp(48px, min(calc((100vh - 140px) / 8.3), calc((100vw - 440px) / 8.3)), 180px);
+}
 .board-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .07em; color: #e94560; }
 .hidden { display: none !important; }
 
@@ -41,7 +49,6 @@ nav {
 table.chess-table {
   border-collapse: collapse;
   border: 2px solid #555;
-  --sq: clamp(56px, 9.5vmin, 104px);
 }
 .chess-square {
   width: var(--sq); height: var(--sq);
@@ -172,9 +179,9 @@ button.sm     { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
 .tag-cache  { background: #37474f; }
 
 /* ── Graveyards ── */
-.graveyard-section { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.6rem; width: 100%; }
-.graveyard-row { display: flex; align-items: center; gap: 0.5rem; min-height: 1.6rem; }
-.graveyard-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: .06em; color: #888; width: 100px; flex-shrink: 0; }
+.graveyard-row { display: flex; align-items: center; gap: 0.5rem; min-height: 1.6rem; margin-top: 0.25rem; }
+.graveyard-row:first-of-type { margin-top: 0; }
+.graveyard-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .06em; color: #888; width: 44px; flex-shrink: 0; }
 .graveyard { display: flex; flex-wrap: wrap; gap: 1px; background: #12122a; border-radius: 4px; padding: 2px 4px; min-height: 1.6rem; flex: 1; }
 .graveyard-piece {
   display: block;
