@@ -835,6 +835,10 @@ document.querySelectorAll(".inline-error-dismiss").forEach((b) => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
+if (new URLSearchParams(window.location.search).has("compact")) {
+  document.querySelector(".app")?.classList.remove("kiosk");
+}
+
 renderBoard();
 renderMaterial();
 renderTape();

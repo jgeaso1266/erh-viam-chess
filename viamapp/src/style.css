@@ -597,3 +597,71 @@ body {
   flex-wrap: wrap;
   gap: 4px;
 }
+
+/* ── Kiosk mode ─────────────────────────────────────────────────────────────
+   Default layout for touch / viewed-from-afar use. Opt out with ?compact=1
+   for the dense desktop variant. */
+.app.kiosk {
+  --text-3: #a1a3a9;
+  --text-4: #82848a;
+  --line-1: #3a3b3f;
+  --line-2: #4d4e52;
+  --board-dark: #8c7453;
+
+  font-size: 16px;
+}
+.app.kiosk .eyebrow { color: var(--text-2); }
+.app.kiosk .balance-label { color: var(--text-2); }
+.app.kiosk .balance-label.nonzero { color: var(--text-1); }
+.app.kiosk .btn { height: 40px; padding: 0 16px; font-size: 14px; }
+.app.kiosk .btn-sm { height: 34px; padding: 0 12px; font-size: 13px; }
+.app.kiosk .input { height: 40px; padding: 0 10px; font-size: 14px; }
+.app.kiosk .inline-input { width: 52px; }
+.app.kiosk .inline-input.sq { width: 56px; }
+.app.kiosk .auto-toggle { height: 40px; padding: 4px 12px; gap: 8px; }
+.app.kiosk .auto-toggle input { width: 16px; height: 16px; }
+.app.kiosk .vrule { height: 28px; }
+.app.kiosk .vrule.short { height: 24px; }
+
+.app.kiosk .top-bar { padding: 14px 24px; gap: 16px; }
+.app.kiosk .brand-mark { width: 28px; height: 28px; font-size: 16px; }
+.app.kiosk .brand-name { font-size: 18px; }
+.app.kiosk .sep-char { font-size: 14px; }
+.app.kiosk .machine-name { font-size: 13px; }
+.app.kiosk .eyebrow { font-size: 12px; }
+.app.kiosk .eyebrow-xxs { font-size: 11px; }
+.app.kiosk .xs { font-size: 12px; }
+
+.app.kiosk .status-cluster .mono { font-size: 13px; }
+.app.kiosk .status-pill { font-size: 13px; }
+.app.kiosk .status-pill .dot { width: 9px; height: 9px; }
+.app.kiosk .last-from, .app.kiosk .last-to { font-size: 16px; }
+.app.kiosk .last-san { font-size: 13px; }
+
+.app.kiosk .main-stage { grid-template-columns: 264px 1fr 304px; }
+.app.kiosk .left-rail { padding: 24px 22px; gap: 26px; }
+.app.kiosk .material-scale { height: 100px; }
+.app.kiosk .scale-beam { width: 180px; }
+.app.kiosk .scale-pts { font-size: 16px; }
+.app.kiosk .scale-pan-strip { width: 64px; height: 4px; }
+.app.kiosk .balance-label { font-size: 13px; }
+.app.kiosk .captured-piece { width: 32px; height: 32px; }
+.app.kiosk .captured-column { min-height: 36px; gap: 3px; }
+
+.app.kiosk .chess-board {
+  --sq-size: clamp(48px, min(calc((100vh - 220px) / 8.2), calc((100vw - 640px) / 8.2)), 112px);
+}
+.app.kiosk .chess-square .coord { font-size: 11px; }
+
+.app.kiosk .tape-header { padding: 16px 22px 12px; }
+.app.kiosk .tape-row {
+  grid-template-columns: 44px 18px 1fr auto;
+  padding: 6px 22px;
+  gap: 12px;
+  font-size: 14px;
+}
+.app.kiosk .tape-coord { font-size: 12px; }
+.app.kiosk .tape-evt { padding: 4px 22px; font-size: 12px; }
+.app.kiosk .tape-evt-tag { width: 56px; }
+
+.app.kiosk .bottom-bar { padding: 14px 24px; gap: 16px; }
