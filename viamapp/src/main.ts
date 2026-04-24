@@ -86,7 +86,14 @@ let busy = false;
 let autoMode = false;
 let detectionTimer: ReturnType<typeof setInterval> | null = null;
 let detectionInFlight = false;
+let autoReplyInFlight = false;
 const DETECTION_POLL_MS = 1000;
+// Gap between a detected human ply and firing `go 1`. `go`'s internal sanity
+// check re-captures the camera; if the player's hand or piece is still moving
+// it errors with "bad number of differences". Let the board settle first.
+const AUTO_REPLY_DELAY_MS = 1500;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -144,16 +151,58 @@ function sortCaptured(pieces: string[]): string[] {
   );
 }
 
-async function detectHumanMove(): Promise<{ from: string; to: string; uci: string } | null> {
+// Infer a single-ply move from a before/after board diff. Returns null when
+// the diff doesn't cleanly resolve to one from + one to (e.g., castling, en
+// passant, or multi-ply jump). Used when state advances externally (another
+// client registered the move) so we can still reflect it in the tape.
+function inferSingleMove(
+  prev: (string | null)[][],
+  curr: (string | null)[][]
+): { from: string; to: string } | null {
+  let from: string | null = null;
+  let to: string | null = null;
+  let extras = 0;
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const a = prev[r]?.[c] ?? null;
+      const b = curr[r]?.[c] ?? null;
+      if (a === b) continue;
+      const sq = rcToSq(r, c);
+      if (a && !b) {
+        if (from === null) from = sq;
+        else extras++;
+      } else if (!a && b) {
+        if (to === null) to = sq;
+        else extras++;
+      } else if (a && b && a !== b) {
+        if (to === null) to = sq;
+        else extras++;
+      }
+    }
+  }
+  if (from && to && extras === 0) return { from, to };
+  return null;
+}
+
+type DetectResult =
+  | { kind: "detected"; from: string; to: string; uci: string }
+  | { kind: "none" }
+  | { kind: "error"; msg: string; benign: boolean };
+
+async function detectHumanMove(): Promise<DetectResult> {
   try {
     const res = await doCommand({ "detect-human-move": true });
+    console.debug("[detect]", res);
     if (res.detected && typeof res.from === "string" && typeof res.to === "string") {
-      return { from: res.from, to: res.to, uci: (res.uci as string) ?? `${res.from}${res.to}` };
+      return { kind: "detected", from: res.from, to: res.to, uci: (res.uci as string) ?? `${res.from}${res.to}` };
     }
-  } catch {
-    // Detection errors (mid-move, ambiguous diff) are expected during polling.
+    return { kind: "none" };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const benign = msg.includes("bad number of differences");
+    console.debug("[detect] error", { msg, benign });
+    return { kind: "error", msg, benign };
   }
-  return null;
 }
 
 // ── Connection ─────────────────────────────────────────────────────────────
@@ -518,12 +567,26 @@ function dismissInlineError(which: "go" | "move") {
 // ── State application ──────────────────────────────────────────────────────
 
 function applySnapshot(res: Record<string, JsonValue>) {
+  let inferredExternal: { from: string; to: string } | null = null;
   if (serverAuthoritative) {
     if (typeof res.fen === "string") {
+      const prevFen = currentFen;
       currentFen = res.fen;
       const { board, turn } = parseFENPlacement(currentFen);
+      const prevBoard = prevFen ? parseFENPlacement(prevFen).board : null;
       currentBoard = board;
       currentTurn = turn;
+      if (prevFen && prevFen !== currentFen) {
+        console.debug("[fen]", prevFen, "→", currentFen);
+        if (prevBoard) {
+          const inferred = inferSingleMove(prevBoard, currentBoard);
+          if (inferred && (lastMove?.from !== inferred.from || lastMove?.to !== inferred.to)) {
+            // FEN advanced by one move and we didn't push it — another client
+            // (or a path we don't own) registered it. Reflect it in the tape.
+            inferredExternal = inferred;
+          }
+        }
+      }
     }
     if (Array.isArray(res.white_graveyard)) whiteGraveyard = res.white_graveyard as string[];
     if (Array.isArray(res.black_graveyard)) blackGraveyard = res.black_graveyard as string[];
@@ -538,6 +601,12 @@ function applySnapshot(res: Record<string, JsonValue>) {
   renderMaterial();
   renderTopStatus();
   updateStatusFromMismatches();
+
+  if (inferredExternal) {
+    pushMoveToTape(inferredExternal.from, inferredExternal.to, `${inferredExternal.from}${inferredExternal.to}`);
+    pushEvent("go", "inferred from fen diff");
+    void triggerAutoReply();
+  }
 }
 
 function pushMoveToTape(from: string, to: string, san: string) {
@@ -578,6 +647,7 @@ function startAutoRefresh() {
 
 function setAutoMode(enabled: boolean) {
   autoMode = enabled;
+  pushEvent("go", `auto: ${enabled ? "on" : "off"}`);
 }
 
 function startDetectionPoll() {
@@ -585,24 +655,25 @@ function startDetectionPoll() {
   detectionTimer = setInterval(() => { void detectionTick(); }, DETECTION_POLL_MS);
 }
 
-async function detectionTick() {
-  if (detectionInFlight || busy || !chessService) return;
-  detectionInFlight = true;
+async function triggerAutoReply() {
+  if (autoReplyInFlight) return;
+  if (!autoMode) {
+    pushEvent("go", "auto · off, skipping reply");
+    return;
+  }
+  if (currentTurn !== "b") {
+    pushEvent("go", `auto · skip (${currentTurn === "w" ? "white" : currentTurn} to move)`);
+    return;
+  }
+  autoReplyInFlight = true;
   try {
-    let human: Awaited<ReturnType<typeof detectHumanMove>> = null;
-    try {
-      human = await detectHumanMove();
-    } catch {
-      // Detection errors (mid-move, ambiguous diff) — silent; retry next tick.
-      return;
-    }
-    if (!human) return;
-    pushMoveToTape(human.from, human.to, human.uci);
-    // Server registered the move; pull the updated FEN/graveyards/camera.
-    serverAuthoritative = true;
-    await refreshState();
-    // Robot's reply is gated on the auto-mode toggle.
-    if (!autoMode) return;
+    pushEvent("go", "auto · replying");
+    // Pause the 1.5s auto-refresh so it doesn't overwrite the pill during the
+    // settle delay. withBusy's finally will restart it.
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    setStatus(`auto · replying in ${(AUTO_REPLY_DELAY_MS / 1000).toFixed(1)}s`, "warn");
+    await sleep(AUTO_REPLY_DELAY_MS);
+    setStatus("auto · thinking", "warn");
     try {
       await withBusy(async () => {
         const res = await doCommand({ go: 1 });
@@ -614,7 +685,35 @@ async function detectionTick() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       pushEvent("err", `auto go: ${msg}`);
+      updateStatusFromMismatches();
+      if (!autoRefreshTimer) startAutoRefresh();
     }
+  } finally {
+    autoReplyInFlight = false;
+  }
+}
+
+async function detectionTick() {
+  if (detectionInFlight || busy || !chessService) return;
+  detectionInFlight = true;
+  try {
+    const result = await detectHumanMove();
+    if (result.kind === "error") {
+      if (!result.benign) pushEvent("err", `detect: ${result.msg}`);
+      return;
+    }
+    if (result.kind === "none") return;
+    pushMoveToTape(result.from, result.to, result.uci);
+    // Server registered the move; pull the updated FEN/graveyards/camera.
+    // (Direct doCommand call bypasses refreshState's in-flight guard.)
+    serverAuthoritative = true;
+    try {
+      const snap = await doCommand({ "board-snapshot": true });
+      applySnapshot(snap);
+    } catch {
+      /* ignore — proceed with whatever state we have */
+    }
+    await triggerAutoReply();
   } finally {
     detectionInFlight = false;
   }
@@ -648,8 +747,8 @@ async function cmdGo() {
       // Register any unplayed human ply first so the tape reflects it before
       // the engine response. The `go` call's own sanity check will then see
       // a clean diff and just pick the engine's move.
-      const human = await detectHumanMove();
-      if (human) pushMoveToTape(human.from, human.to, human.uci);
+      const pre = await detectHumanMove();
+      if (pre.kind === "detected") pushMoveToTape(pre.from, pre.to, pre.uci);
 
       const res = await doCommand({ go: n });
       const move = typeof res.move === "string" ? res.move : "";
