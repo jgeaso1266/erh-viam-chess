@@ -30,10 +30,7 @@ import (
 
 var ChessModel = family.WithModel("chess")
 
-// gripperFrame is the frame used for pose calculations and motion planning.
-// With the longer gripper add-on, planning targets the tip of the add-on
-// rather than the bare gripper component.
-const gripperFrame = "gripper-add-on"
+const safeZ = 200.0
 
 func init() {
 	resource.RegisterService(generic.API, ChessModel,

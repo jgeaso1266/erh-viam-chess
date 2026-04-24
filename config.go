@@ -22,14 +22,12 @@ type ChessConfig struct {
 
 	CaptureDir string // mostly for vla data
 
-	SafeZ                 float64 `json:"safe-z"`                  // default 350.0 mm (transit height)
-	GrabZ                 float64 `json:"grab-z"`                  // default 45.0 mm
-	GraveyardSpacingY     float64 `json:"graveyard-spacing-y"`     // default 80.0 mm per row
-	GraveyardZ            float64 `json:"graveyard-z"`             // default 60.0 mm
-	GripperOpenPos        float64 `json:"gripper-open-pos"`        // default 350.0
-	GripperClosePos       float64 `json:"gripper-close-pos"`       // default 220.0
-	GripperCloseThreshold float64 `json:"gripper-close-threshold"` // default 253.0 (success if gripper reaches this)
-	SkillAdjust           float64 `json:"skill-adjust"`            // initial engine skill, default 50.0
+	GrabZ             float64 `json:"grab-z"`              // default 40.0 mm
+	GrabZTall         float64 `json:"grab-z-tall"`         // default 80.0 mm (king/queen)
+	GraveyardSpacingY float64 `json:"graveyard-spacing-y"` // default 80.0 mm per row
+	GraveyardZ        float64 `json:"graveyard-z"`         // default 60.0 mm
+	GripperOpenPos    float64 `json:"gripper-open-pos"`    // default 450.0
+	SkillAdjust       float64 `json:"skill-adjust"`        // initial engine skill, default 50.0
 }
 
 func (cfg *ChessConfig) engine() string {
@@ -46,18 +44,18 @@ func (cfg *ChessConfig) engineMillis() int {
 	return cfg.EngineMillis
 }
 
-func (cfg *ChessConfig) safeZ() float64 {
-	if cfg.SafeZ <= 0 {
-		return 350.0
-	}
-	return cfg.SafeZ
-}
-
 func (cfg *ChessConfig) grabZ() float64 {
 	if cfg.GrabZ <= 0 {
-		return 45.0
+		return 40.0
 	}
 	return cfg.GrabZ
+}
+
+func (cfg *ChessConfig) grabZTall() float64 {
+	if cfg.GrabZTall <= 0 {
+		return 80.0
+	}
+	return cfg.GrabZTall
 }
 
 func (cfg *ChessConfig) graveyardSpacingY() float64 {
@@ -76,23 +74,9 @@ func (cfg *ChessConfig) graveyardZ() float64 {
 
 func (cfg *ChessConfig) gripperOpenPos() float64 {
 	if cfg.GripperOpenPos <= 0 {
-		return 350.0
+		return 450.0
 	}
 	return cfg.GripperOpenPos
-}
-
-func (cfg *ChessConfig) gripperClosePos() float64 {
-	if cfg.GripperClosePos <= 0 {
-		return 220.0
-	}
-	return cfg.GripperClosePos
-}
-
-func (cfg *ChessConfig) gripperCloseThreshold() float64 {
-	if cfg.GripperCloseThreshold <= 0 {
-		return 253.0
-	}
-	return cfg.GripperCloseThreshold
 }
 
 func (cfg *ChessConfig) initialSkillAdjust() float64 {
