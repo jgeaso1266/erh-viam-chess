@@ -166,6 +166,27 @@ body {
 .sep-char { color: var(--text-3); font-size: 12px; }
 .machine-name { font-size: 11px; }
 
+.auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  border: 1px solid var(--line-1);
+  border-radius: 2px;
+  background: var(--bg-2);
+  height: 26px;
+  transition: border-color 100ms ease, background 100ms ease;
+}
+.auto-toggle:hover { border-color: var(--line-2); }
+.auto-toggle input { accent-color: var(--accent); margin: 0; cursor: pointer; }
+.auto-toggle:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.auto-toggle:has(input:checked) .eyebrow-xxs { color: var(--accent); }
+
 .inline-ctl { position: relative; }
 .inline-ctl-row {
   display: flex;

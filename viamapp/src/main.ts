@@ -66,13 +66,27 @@ let whiteGraveyard: string[] = [];
 let blackGraveyard: string[] = [];
 let lastMove: { from: string; to: string; san?: string } | null = null;
 
-let tapeMoves: MoveEntry[] = [];
-let tapeEvents: EvtEntry[] = [];
+let tapeItems: TapeEntry[] = [];
+let plyCount = 0;
+
+// When the user makes a direct move, we apply it optimistically and the UI
+// becomes authoritative for board state. Server snapshots during this window
+// still update camera/mismatches, but not the board — otherwise a stale server
+// FEN reverts the move in the UI while the camera already shows the new position.
+// Robot `go` / `wipe` / `reset` flip this back to true so the server drives state.
+let serverAuthoritative = true;
 
 let selectedSq: string | null = null;
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshInFlight = false;
 let busy = false;
+
+// Continuous detection poll — always running, regardless of auto-mode.
+// `autoMode` only gates whether the robot auto-replies to a detected human ply.
+let autoMode = false;
+let detectionTimer: ReturnType<typeof setInterval> | null = null;
+let detectionInFlight = false;
+const DETECTION_POLL_MS = 1000;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -128,6 +142,18 @@ function sortCaptured(pieces: string[]): string[] {
   return [...pieces].sort(
     (a, b) => order.indexOf(a.toUpperCase()) - order.indexOf(b.toUpperCase())
   );
+}
+
+async function detectHumanMove(): Promise<{ from: string; to: string; uci: string } | null> {
+  try {
+    const res = await doCommand({ "detect-human-move": true });
+    if (res.detected && typeof res.from === "string" && typeof res.to === "string") {
+      return { from: res.from, to: res.to, uci: (res.uci as string) ?? `${res.from}${res.to}` };
+    }
+  } catch {
+    // Detection errors (mid-move, ambiguous diff) are expected during polling.
+  }
+  return null;
 }
 
 // ── Connection ─────────────────────────────────────────────────────────────
@@ -406,11 +432,11 @@ function renderTape() {
   const tapeEl = document.getElementById("tape");
   const plyEl = document.getElementById("tape-ply");
   if (!tapeEl) return;
-  if (plyEl) plyEl.textContent = `${tapeMoves.length} ply`;
+  if (plyEl) plyEl.textContent = `${plyCount} ply`;
 
   tapeEl.innerHTML = "";
 
-  if (tapeMoves.length === 0 && tapeEvents.length === 0) {
+  if (tapeItems.length === 0) {
     const e = document.createElement("div");
     e.className = "empty";
     e.textContent = "awaiting first move";
@@ -418,11 +444,13 @@ function renderTape() {
     return;
   }
 
-  // Render moves in order, then append events. Events are appended in arrival order.
-  const items: TapeEntry[] = [...tapeMoves, ...tapeEvents];
-  const lastMoveIdx = tapeMoves.length - 1;
+  let lastMoveIdx = -1;
+  for (let k = tapeItems.length - 1; k >= 0; k--) {
+    const it = tapeItems[k];
+    if (it.kind === "move") { lastMoveIdx = it.i; break; }
+  }
 
-  items.forEach((it) => {
+  tapeItems.forEach((it) => {
     if (it.kind === "evt") {
       const row = document.createElement("div");
       row.className = "tape-evt";
@@ -465,7 +493,7 @@ function renderTape() {
 }
 
 function pushEvent(type: EvtType, label: string) {
-  tapeEvents.push({ kind: "evt", type, label });
+  tapeItems.push({ kind: "evt", type, label });
   renderTape();
 }
 
@@ -490,19 +518,21 @@ function dismissInlineError(which: "go" | "move") {
 // ── State application ──────────────────────────────────────────────────────
 
 function applySnapshot(res: Record<string, JsonValue>) {
-  if (typeof res.fen === "string") {
-    currentFen = res.fen;
-    const { board, turn } = parseFENPlacement(currentFen);
-    currentBoard = board;
-    currentTurn = turn;
+  if (serverAuthoritative) {
+    if (typeof res.fen === "string") {
+      currentFen = res.fen;
+      const { board, turn } = parseFENPlacement(currentFen);
+      currentBoard = board;
+      currentTurn = turn;
+    }
+    if (Array.isArray(res.white_graveyard)) whiteGraveyard = res.white_graveyard as string[];
+    if (Array.isArray(res.black_graveyard)) blackGraveyard = res.black_graveyard as string[];
   }
   cameraBoard =
     res.camera_board && typeof res.camera_board === "object"
       ? (res.camera_board as Record<string, string>)
       : null;
   mismatches = diffCamera(currentBoard, cameraBoard);
-  if (Array.isArray(res.white_graveyard)) whiteGraveyard = res.white_graveyard as string[];
-  if (Array.isArray(res.black_graveyard)) blackGraveyard = res.black_graveyard as string[];
 
   renderBoard();
   renderMaterial();
@@ -511,12 +541,17 @@ function applySnapshot(res: Record<string, JsonValue>) {
 }
 
 function pushMoveToTape(from: string, to: string, san: string) {
-  const i = tapeMoves.length;
+  const i = plyCount++;
   const color: "w" | "b" = i % 2 === 0 ? "w" : "b";
-  tapeMoves.push({ kind: "move", i, from, to, san, color });
+  tapeItems.push({ kind: "move", i, from, to, san, color });
   lastMove = { from, to, san };
   renderTape();
   renderTopStatus();
+}
+
+function resetTape() {
+  tapeItems = [];
+  plyCount = 0;
 }
 
 // ── Refresh ────────────────────────────────────────────────────────────────
@@ -537,6 +572,52 @@ async function refreshState() {
 function startAutoRefresh() {
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
   autoRefreshTimer = setInterval(refreshState, 1500);
+}
+
+// ── Auto mode ──────────────────────────────────────────────────────────────
+
+function setAutoMode(enabled: boolean) {
+  autoMode = enabled;
+}
+
+function startDetectionPoll() {
+  if (detectionTimer) clearInterval(detectionTimer);
+  detectionTimer = setInterval(() => { void detectionTick(); }, DETECTION_POLL_MS);
+}
+
+async function detectionTick() {
+  if (detectionInFlight || busy || !chessService) return;
+  detectionInFlight = true;
+  try {
+    let human: Awaited<ReturnType<typeof detectHumanMove>> = null;
+    try {
+      human = await detectHumanMove();
+    } catch {
+      // Detection errors (mid-move, ambiguous diff) — silent; retry next tick.
+      return;
+    }
+    if (!human) return;
+    pushMoveToTape(human.from, human.to, human.uci);
+    // Server registered the move; pull the updated FEN/graveyards/camera.
+    serverAuthoritative = true;
+    await refreshState();
+    // Robot's reply is gated on the auto-mode toggle.
+    if (!autoMode) return;
+    try {
+      await withBusy(async () => {
+        const res = await doCommand({ go: 1 });
+        const move = typeof res.move === "string" ? res.move : "";
+        const m = move.match(/^([a-h][1-8])[-\s]?([a-h][1-8])/);
+        if (m) pushMoveToTape(m[1], m[2], move);
+        pushEvent("go", `auto · ${move}`);
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      pushEvent("err", `auto go: ${msg}`);
+    }
+  } finally {
+    detectionInFlight = false;
+  }
 }
 
 // ── Commands ───────────────────────────────────────────────────────────────
@@ -561,11 +642,17 @@ async function withBusy(fn: () => Promise<void>) {
 async function cmdGo() {
   dismissInlineError("go");
   const n = parseInt((document.getElementById("go-n") as HTMLInputElement).value, 10) || 1;
+  serverAuthoritative = true;
   try {
     await withBusy(async () => {
+      // Register any unplayed human ply first so the tape reflects it before
+      // the engine response. The `go` call's own sanity check will then see
+      // a clean diff and just pick the engine's move.
+      const human = await detectHumanMove();
+      if (human) pushMoveToTape(human.from, human.to, human.uci);
+
       const res = await doCommand({ go: n });
       const move = typeof res.move === "string" ? res.move : "";
-      // Try to pick from/to out of move string like "e2e4" or "e2-e4"
       const m = move.match(/^([a-h][1-8])[-\s]?([a-h][1-8])/);
       if (m) pushMoveToTape(m[1], m[2], move);
       pushEvent("go", `robot ×${n}${move ? ` · ${move}` : ""}`);
@@ -621,10 +708,23 @@ async function submitMove(from: string, to: string) {
   renderTopStatus();
   updateStatusFromMismatches();
 
+  // Between arm-move and engine-go, intermediate snapshots would see a stale
+  // server FEN (move is low-level; game state advances on the next `go`).
+  // Hold the UI as authoritative until `go` completes, then let server drive.
+  serverAuthoritative = false;
+
   try {
     await withBusy(async () => {
+      // 1. Arm physically moves the piece (no server game-state change).
       await doCommand({ move: { from, to, n: 1 } });
+      // 2. `go 1` sanity-checks the camera, registers the human ply on the
+      //    server, then picks and plays the engine's response.
+      const goRes = await doCommand({ go: 1 });
+      serverAuthoritative = true;
       pushMoveToTape(from, to, `${from}${to}`);
+      const mv = typeof goRes.move === "string" ? goRes.move : "";
+      const parsed = mv.match(/^([a-h][1-8])[-\s]?([a-h][1-8])/);
+      if (parsed) pushMoveToTape(parsed[1], parsed[2], mv);
     });
   } catch (e) {
     currentBoard = prev.board;
@@ -633,6 +733,7 @@ async function submitMove(from: string, to: string) {
     currentTurn = prev.turn;
     lastMove = prev.lastMove;
     mismatches = prev.mismatches;
+    serverAuthoritative = true;
     renderBoard();
     renderMaterial();
     renderTopStatus();
@@ -668,12 +769,14 @@ async function cmdMaintenance(id: "refresh" | "snapshot" | "cache" | "wipe" | "r
         await doCommand({ ClearCache: true });
       } else if (id === "wipe") {
         await doCommand({ wipe: true });
-        tapeMoves = [];
+        resetTape();
         lastMove = null;
+        serverAuthoritative = true;
       } else if (id === "reset") {
         await doCommand({ reset: true });
-        tapeMoves = [];
+        resetTape();
         lastMove = null;
+        serverAuthoritative = true;
       }
       pushEvent(id, labelFor(id));
     });
@@ -709,6 +812,9 @@ document.getElementById("move-to")!.addEventListener("keydown", (e) => {
 document.getElementById("go-n")!.addEventListener("keydown", (e) => {
   if ((e as KeyboardEvent).key === "Enter") void cmdGo();
 });
+document.getElementById("auto-mode")!.addEventListener("change", (e) => {
+  setAutoMode((e.target as HTMLInputElement).checked);
+});
 document.querySelectorAll(".inline-error-dismiss").forEach((b) => {
   b.addEventListener("click", (e) => {
     const parent = (e.currentTarget as HTMLElement).closest(".inline-error");
@@ -735,7 +841,7 @@ renderTape();
 
 connect()
   .then(refreshState)
-  .then(startAutoRefresh)
+  .then(() => { startAutoRefresh(); startDetectionPoll(); })
   .catch((e) => {
     const msg = e instanceof Error ? e.message : String(e);
     setStatus("offline", "err");
