@@ -567,8 +567,11 @@ function dismissInlineError(which: "go" | "move") {
 
 // ── State application ──────────────────────────────────────────────────────
 
+const STARTING_PLACEMENT = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+
 function applySnapshot(res: Record<string, JsonValue>) {
   let inferredExternal: { from: string; to: string } | null = null;
+  let observedReset = false;
   if (serverAuthoritative) {
     if (typeof res.fen === "string") {
       const prevFen = currentFen;
@@ -579,7 +582,13 @@ function applySnapshot(res: Record<string, JsonValue>) {
       currentTurn = turn;
       if (prevFen && prevFen !== currentFen) {
         console.debug("[fen]", prevFen, "→", currentFen);
-        if (prevBoard) {
+        const prevPlacement = prevFen.split(" ")[0];
+        const currPlacement = currentFen.split(" ")[0];
+        if (prevPlacement !== STARTING_PLACEMENT && currPlacement === STARTING_PLACEMENT) {
+          // FEN jumped back to starting position — someone called wipe/reset.
+          // Clear our tape so we don't display stale history alongside a fresh game.
+          observedReset = true;
+        } else if (prevBoard) {
           const inferred = inferSingleMove(prevBoard, currentBoard);
           if (inferred && (lastMove?.from !== inferred.from || lastMove?.to !== inferred.to)) {
             // FEN advanced by one move and we didn't push it — another client
@@ -603,7 +612,13 @@ function applySnapshot(res: Record<string, JsonValue>) {
   renderTopStatus();
   updateStatusFromMismatches();
 
-  if (inferredExternal) {
+  if (observedReset) {
+    resetTape();
+    lastMove = null;
+    pushEvent("reset", "observed reset from another client");
+    renderTape();
+    renderTopStatus();
+  } else if (inferredExternal) {
     pushMoveToTape(inferredExternal.from, inferredExternal.to, `${inferredExternal.from}${inferredExternal.to}`);
     pushEvent("go", "inferred from fen diff");
     void triggerAutoReply();
@@ -631,8 +646,10 @@ function resetTape() {
 // survives a page reload. Graveyards/board come from the server on reconnect.
 
 const STORAGE_KEY = "garry.chess.state.v1";
+const mockMode = new URLSearchParams(window.location.search).has("mock");
 
 function persistState() {
+  if (mockMode) return;
   try {
     localStorage.setItem(
       STORAGE_KEY,
@@ -655,6 +672,45 @@ function loadPersistedState() {
   } catch (e) {
     console.warn("[persist] load failed", e);
   }
+}
+
+// Seed fake tape + graveyards + a mid-game FEN so the UI can be inspected
+// visually without a running game. Triggered by `?mock` in the URL.
+function seedMockState() {
+  tapeItems = [];
+  plyCount = 0;
+  const pushMove = (from: string, to: string) => {
+    const i = plyCount++;
+    tapeItems.push({ kind: "move", i, from, to, san: `${from}${to}`, color: i % 2 === 0 ? "w" : "b" });
+  };
+  tapeItems.push({ kind: "evt", type: "wipe", label: "state wiped" });
+  tapeItems.push({ kind: "evt", type: "go", label: "auto: on" });
+  pushMove("e2", "e4");
+  tapeItems.push({ kind: "evt", type: "go", label: "auto · replying" });
+  pushMove("e7", "e5");
+  tapeItems.push({ kind: "evt", type: "go", label: "auto · e7e5" });
+  pushMove("g1", "f3");
+  pushMove("b8", "c6");
+  tapeItems.push({ kind: "evt", type: "go", label: "inferred from fen diff" });
+  pushMove("f1", "b5");
+  pushMove("a7", "a6");
+  tapeItems.push({
+    kind: "evt",
+    type: "err",
+    label: "auto go: [unknown] bad number of differences (1) : [h4]",
+  });
+  pushMove("b5", "a4");
+  pushMove("g8", "f6");
+  tapeItems.push({ kind: "evt", type: "go", label: "auto · g8f6" });
+  const last = tapeItems[tapeItems.length - 2];
+  if (last && last.kind === "move") lastMove = { from: last.from, to: last.to, san: last.san };
+
+  whiteGraveyard = ["P", "P", "N"];
+  blackGraveyard = ["p", "b"];
+  currentFen = "r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 3 5";
+  const parsed = parseFENPlacement(currentFen);
+  currentBoard = parsed.board;
+  currentTurn = parsed.turn;
 }
 
 // ── Refresh ────────────────────────────────────────────────────────────────
@@ -973,8 +1029,12 @@ if (new URLSearchParams(window.location.search).has("compact")) {
   document.querySelector(".app")?.classList.remove("kiosk");
 }
 
-loadPersistedState();
-// Sync the Auto checkbox to the persisted value (quietly, without pushing an event).
+if (mockMode) {
+  seedMockState();
+} else {
+  loadPersistedState();
+}
+// Sync the Auto checkbox to the persisted/mock value.
 {
   const autoCheckbox = document.getElementById("auto-mode") as HTMLInputElement | null;
   if (autoCheckbox) autoCheckbox.checked = autoMode;
@@ -984,11 +1044,17 @@ renderMaterial();
 renderTape();
 renderTopStatus();
 
-connect()
-  .then(refreshState)
-  .then(() => { startAutoRefresh(); startDetectionPoll(); })
-  .catch((e) => {
-    const msg = e instanceof Error ? e.message : String(e);
-    setStatus("offline", "err");
-    pushEvent("err", msg);
-  });
+if (mockMode) {
+  setStatus("mock", "warn");
+  const machineEl = document.getElementById("machine-name");
+  if (machineEl) machineEl.textContent = "mock";
+} else {
+  connect()
+    .then(refreshState)
+    .then(() => { startAutoRefresh(); startDetectionPoll(); })
+    .catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatus("offline", "err");
+      pushEvent("err", msg);
+    });
+}
