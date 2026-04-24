@@ -92,18 +92,6 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		}, nil
 	}
 
-	var videoFrom *time.Time
-	var videoTags []string
-	defer func() {
-		err := s.goToStart(ctx)
-		if err != nil {
-			s.logger.Warnf("can't go home: %v", err)
-		}
-		if videoFrom != nil {
-			s.saveVideo(ctx, *videoFrom, time.Now().UTC(), videoTags)
-		}
-	}()
-
 	if cmd.Hover != "" {
 		err := s.goToStart(ctx)
 		if err != nil {
@@ -119,7 +107,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		if err != nil {
 			return nil, err
 		}
-		center.Z = max(15, center.Z)
+		center.Z = max(15, center.Z) + 100
 
 		err = s.setupGripper(ctx)
 		if err != nil {
@@ -131,10 +119,20 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			return nil, err
 		}
 
-		time.Sleep(10 * time.Second)
-
 		return map[string]interface{}{"center": center}, nil
 	}
+
+	var videoFrom *time.Time
+	var videoTags []string
+	defer func() {
+		err := s.goToStart(ctx)
+		if err != nil {
+			s.logger.Warnf("can't go home: %v", err)
+		}
+		if videoFrom != nil {
+			s.saveVideo(ctx, *videoFrom, time.Now().UTC(), videoTags)
+		}
+	}()
 
 	if cmd.Move.To != "" && cmd.Move.From != "" {
 		s.logger.Infof("move %v to %v", cmd.Move.From, cmd.Move.To)
