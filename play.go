@@ -87,7 +87,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 	}
 
 	if doSanityCheck {
-		err = s.checkPositionForMoves(ctx, all)
+		_, err = s.checkPositionForMoves(ctx, all)
 		if err != nil {
 			return nil, err
 		}
@@ -355,13 +355,18 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 	return s.saveGame(ctx, newState)
 }
 
-func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscapture.VisCapture) error {
+// checkPositionForMoves inspects the camera capture for a single legal human
+// move that hasn't been registered yet. If it finds one, it applies and saves
+// the move, and returns a pointer to it. Returns (nil, nil) when the camera
+// matches game state (no unregistered move). Returns an error when the diff
+// can't be explained by a single legal move.
+func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscapture.VisCapture) (*chess.Move, error) {
 	ctx, span := trace.StartSpan(ctx, "checkPositionForMoves")
 	defer span.End()
 
 	theState, err := s.getGame(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	differences := []chess.Square{}
@@ -374,7 +379,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		fromState := theState.game.Position().Board().Piece(sq)
 		o := s.findObject(all, x)
 		if o == nil {
-			return fmt.Errorf("can't find object for square %s during position check", x)
+			return nil, fmt.Errorf("can't find object for square %s during position check", x)
 		}
 		oc := int(o.Geometry.Label()[3] - '0')
 
@@ -391,7 +396,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 	}
 
 	if len(differences) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	if len(differences) == 4 {
@@ -420,7 +425,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 	}
 
 	if len(differences) != 2 && len(differences) != 0 {
-		return fmt.Errorf("bad number of differences (%d) : %v", len(differences), differences)
+		return nil, fmt.Errorf("bad number of differences (%d) : %v", len(differences), differences)
 	}
 
 	moves := theState.game.ValidMoves()
@@ -453,12 +458,12 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 
 			err = theState.game.Move(&m, nil)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			err = s.saveGame(ctx, theState)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			// If the human only moved the king (2 differences), physically move
@@ -479,16 +484,16 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 				if rookFrom != "" {
 					s.logger.Infof("castle detected: moving rook %s -> %s", rookFrom, rookTo)
 					if err = s.movePiece(ctx, all, nil, rookFrom, rookTo, nil, nil); err != nil {
-						return fmt.Errorf("castle rook move failed: %w", err)
+						return nil, fmt.Errorf("castle rook move failed: %w", err)
 					}
 				}
 			}
 
-			return nil
+			return &m, nil
 		}
 	}
 
-	return fmt.Errorf("no valid moves from: %v to %v found out of %d", from, to, len(moves))
+	return nil, fmt.Errorf("no valid moves from: %v to %v found out of %d", from, to, len(moves))
 }
 
 func squaresSame(a, b []chess.Square) bool {

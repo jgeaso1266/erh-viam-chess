@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/corentings/chess/v2"
 	"github.com/mitchellh/mapstructure"
 
 	"go.viam.com/rdk/vision/viscapture"
@@ -24,10 +25,11 @@ type cmdStruct struct {
 	Wipe          bool
 	Skill         float64
 	Hover         string
-	ClearCache    bool `mapstructure:"clear-cache"`
-	Undo          int
-	PlayFEN       string `mapstructure:"play-fen"`
-	BoardSnapshot bool   `mapstructure:"board-snapshot"`
+	ClearCache      bool `mapstructure:"clear-cache"`
+	Undo            int
+	PlayFEN         string `mapstructure:"play-fen"`
+	BoardSnapshot   bool   `mapstructure:"board-snapshot"`
+	DetectHumanMove bool   `mapstructure:"detect-human-move"`
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -56,6 +58,28 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		s.skillAdjust = cmd.Skill
 		return nil, nil
 	}
+	if cmd.DetectHumanMove {
+		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		s.populateCacheFromCapture(all)
+		m, err := s.checkPositionForMoves(ctx, all)
+		if err != nil {
+			return nil, err
+		}
+		result := map[string]interface{}{"detected": m != nil}
+		if m != nil {
+			result["from"] = m.S1().String()
+			result["to"] = m.S2().String()
+			result["uci"] = m.String()
+			if m.HasTag(chess.Capture) || m.HasTag(chess.EnPassant) {
+				result["captured"] = true
+			}
+		}
+		return result, nil
+	}
+
 	if cmd.BoardSnapshot {
 		theState, err := s.getGame(ctx)
 		if err != nil {
