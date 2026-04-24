@@ -86,64 +86,6 @@
           "main": [
             {
               "key": 0,
-              "color": "blue",
-              "component": "buttons",
-              "method": "do_command",
-              "args": [{ "set_page": "engine" }],
-              "text": "Engine Mode"
-            },
-            {
-              "key": 1,
-              "color": "blue",
-              "component": "buttons",
-              "method": "do_command",
-              "args": [{ "set_page": "human" }],
-              "text": "Human Mode"
-            },
-            {
-              "key": 4,
-              "color": "teal",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "board-snapshot": true }],
-              "text": "Snapshot"
-            },
-            {
-              "key": 5,
-              "color": "yellow",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "clear-cache": true }],
-              "text": "Clr Cache"
-            },
-            {
-              "key": 6,
-              "color": "orange",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "reset": true }],
-              "text": "Reset"
-            },
-            {
-              "key": 7,
-              "color": "red",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "wipe": true }],
-              "text": "Wipe"
-            }
-          ],
-          "engine": [
-            {
-              "key": 0,
-              "color": "blue",
-              "component": "buttons",
-              "method": "do_command",
-              "args": [{ "set_page": "main" }],
-              "text": "← Main"
-            },
-            {
-              "key": 1,
               "color": "green",
               "component": "chess",
               "method": "do_command",
@@ -151,7 +93,7 @@
               "text": "Go 1"
             },
             {
-              "key": 2,
+              "key": 1,
               "color": "green",
               "component": "chess",
               "method": "do_command",
@@ -159,7 +101,7 @@
               "text": "Go 2"
             },
             {
-              "key": 3,
+              "key": 2,
               "color": "green",
               "component": "chess",
               "method": "do_command",
@@ -167,7 +109,7 @@
               "text": "Go 10"
             },
             {
-              "key": 4,
+              "key": 3,
               "color": "green",
               "component": "chess",
               "method": "do_command",
@@ -175,12 +117,20 @@
               "text": "Go 40"
             },
             {
-              "key": 5,
+              "key": 4,
               "color": "teal",
               "component": "chess",
               "method": "do_command",
               "args": [{ "board-snapshot": true }],
               "text": "Snapshot"
+            },
+            {
+              "key": 5,
+              "color": "yellow",
+              "component": "chess",
+              "method": "do_command",
+              "args": [{ "clear-cache": true }],
+              "text": "Clr Cache"
             },
             {
               "key": 6,
@@ -197,48 +147,6 @@
               "method": "do_command",
               "args": [{ "wipe": true }],
               "text": "Wipe"
-            }
-          ],
-          "human": [
-            {
-              "key": 0,
-              "color": "blue",
-              "component": "buttons",
-              "method": "do_command",
-              "args": [{ "set_page": "main" }],
-              "text": "← Main"
-            },
-            {
-              "key": 1,
-              "color": "green",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "go": 1 }],
-              "text": "Engine's Turn"
-            },
-            {
-              "key": 5,
-              "color": "teal",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "board-snapshot": true }],
-              "text": "Snapshot"
-            },
-            {
-              "key": 6,
-              "color": "yellow",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "clear-cache": true }],
-              "text": "Clr Cache"
-            },
-            {
-              "key": 7,
-              "color": "orange",
-              "component": "chess",
-              "method": "do_command",
-              "args": [{ "reset": true }],
-              "text": "Reset"
             }
           ]
         }
