@@ -154,7 +154,8 @@ body {
   border-radius: 0;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 26px;
+  line-height: 0;
 }
 .brand-name {
   font-family: var(--font-display);
@@ -624,7 +625,7 @@ body {
 .app.kiosk .vrule.short { height: 24px; }
 
 .app.kiosk .top-bar { padding: 14px 24px; gap: 16px; }
-.app.kiosk .brand-mark { width: 28px; height: 28px; font-size: 16px; }
+.app.kiosk .brand-mark { width: 28px; height: 28px; font-size: 32px; line-height: 0; }
 .app.kiosk .brand-name { font-size: 18px; }
 .app.kiosk .sep-char { font-size: 14px; }
 .app.kiosk .machine-name { font-size: 13px; }
