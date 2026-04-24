@@ -18,10 +18,25 @@ interface MoveRecord {
 // ── State ──────────────────────────────────────────────────────────────────
 
 const CHESS_SERVICE_NAME = "chess";
-const PIECE_UNICODE: Record<string, string> = {
-  K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "♙",
-  k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟",
+
+const pieceSvgs = import.meta.glob("../pieces/*.svg", {
+  eager: true,
+  query: "?url",
+  import: "default",
+}) as Record<string, string>;
+
+const PIECE_FILE: Record<string, string> = {
+  K: "white-king", Q: "white-queen", R: "white-rook",
+  B: "white-bishop", N: "white-knight", P: "white-pawn",
+  k: "black-king", q: "black-queen", r: "black-rook",
+  b: "black-bishop", n: "black-knight", p: "black-pawn",
 };
+
+function pieceUrl(piece: string): string | undefined {
+  const name = PIECE_FILE[piece];
+  if (!name) return undefined;
+  return pieceSvgs[`../pieces/${name}.svg`];
+}
 
 let chessService: GenericServiceClient | null = null;
 const history: MoveRecord[] = [];
@@ -116,10 +131,15 @@ function makeSquare(ri: number, ci: number, piece: string | null, cameraBoard: R
   td.className = "chess-square " + ((ri + ci) % 2 === 0 ? "light" : "dark");
 
   if (piece) {
-    const span = document.createElement("span");
-    span.className = "chess-piece " + (piece === piece.toUpperCase() ? "piece-white" : "piece-black");
-    span.textContent = PIECE_UNICODE[piece] ?? "";
-    td.appendChild(span);
+    const url = pieceUrl(piece);
+    if (url) {
+      const img = document.createElement("img");
+      img.className = "chess-piece";
+      img.src = url;
+      img.alt = piece;
+      img.draggable = false;
+      td.appendChild(img);
+    }
   }
 
   if (cameraBoard) {
@@ -150,10 +170,14 @@ function renderGraveyard(elementId: string, pieces: string[]) {
   const el = document.getElementById(elementId)!;
   el.innerHTML = "";
   for (const fen of pieces) {
-    const span = document.createElement("span");
-    span.className = "graveyard-piece " + (fen === fen.toUpperCase() ? "piece-white" : "piece-black");
-    span.textContent = PIECE_UNICODE[fen] ?? "";
-    el.appendChild(span);
+    const url = pieceUrl(fen);
+    if (!url) continue;
+    const img = document.createElement("img");
+    img.className = "graveyard-piece";
+    img.src = url;
+    img.alt = fen;
+    img.draggable = false;
+    el.appendChild(img);
   }
 }
 
