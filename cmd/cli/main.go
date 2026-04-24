@@ -206,6 +206,16 @@ func realMain() error {
 		logger.Infof("res: %v", res)
 		return nil
 
+	case "detect-human-move":
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"detect-human-move": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
+
 	case "play-fen":
 		if *fenFile == "" {
 			return fmt.Errorf("play-fen requires --fen-file")
