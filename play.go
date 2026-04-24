@@ -369,63 +369,92 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		return nil, err
 	}
 
-	differences := []chess.Square{}
+	var differences []chess.Square
 	from := chess.NoSquare
 	to := chess.NoSquare
 
-	for sq := chess.A1; sq <= chess.H8; sq++ {
-		x := squareToString(sq)
+	// "bad number of differences" almost always comes from a single noisy frame:
+	// the physical board is in a valid state but one or more squares are
+	// momentarily misclassified. Recapture and re-scan until the diff resolves
+	// to a legal move shape (0, 2, or a recognized castle quartet).
+	//
+	// Bounded: if the diff is still weird after several fresh captures, it's
+	// almost certainly a real illegal physical state (human moved two pieces,
+	// knocked one over, etc.) — return the error so the caller can surface it.
+	badDiffMaxAttempts := s.conf.badDiffMaxAttempts()
+	for attempt := 1; ; attempt++ {
+		differences = differences[:0]
+		from = chess.NoSquare
+		to = chess.NoSquare
 
-		fromState := theState.game.Position().Board().Piece(sq)
-		o := s.findObject(all, x)
-		if o == nil {
-			return nil, fmt.Errorf("can't find object for square %s during position check", x)
-		}
-		oc := int(o.Geometry.Label()[3] - '0')
+		for sq := chess.A1; sq <= chess.H8; sq++ {
+			x := squareToString(sq)
 
-		if int(fromState.Color()) != oc {
-			s.logger.Infof("different %s fromState: %v o: %v oc: %v", x, fromState, o.Geometry.Label(), oc)
-			differences = append(differences, sq)
-			if oc == 0 {
-				from = sq
-			} else if oc > 0 {
-				to = sq
+			fromState := theState.game.Position().Board().Piece(sq)
+			o := s.findObject(all, x)
+			if o == nil {
+				return nil, fmt.Errorf("can't find object for square %s during position check", x)
+			}
+			oc := int(o.Geometry.Label()[3] - '0')
+
+			if int(fromState.Color()) != oc {
+				s.logger.Infof("different %s fromState: %v o: %v oc: %v", x, fromState, o.Geometry.Label(), oc)
+				differences = append(differences, sq)
+				if oc == 0 {
+					from = sq
+				} else if oc > 0 {
+					to = sq
+				}
 			}
 		}
 
-	}
-
-	if len(differences) == 0 {
-		return nil, nil
-	}
-
-	if len(differences) == 4 {
-		// is this a castle??
-		if squaresSame(differences, []chess.Square{chess.E1, chess.F1, chess.G1, chess.H1}) {
-			// white king castle
-			from = chess.E1
-			to = chess.G1
-			differences = nil
-		} else if squaresSame(differences, []chess.Square{chess.E1, chess.A1, chess.C1, chess.D1}) {
-			// white queen castle
-			from = chess.E1
-			to = chess.C1
-			differences = nil
-		} else if squaresSame(differences, []chess.Square{chess.E8, chess.F8, chess.G8, chess.H8}) {
-			// black king castle
-			from = chess.E8
-			to = chess.G8
-			differences = nil
-		} else if squaresSame(differences, []chess.Square{chess.E8, chess.A8, chess.C8, chess.D8}) {
-			// black queen castle
-			from = chess.E8
-			to = chess.C8
-			differences = nil
+		if len(differences) == 0 {
+			return nil, nil
 		}
-	}
 
-	if len(differences) != 2 && len(differences) != 0 {
-		return nil, fmt.Errorf("bad number of differences (%d) : %v", len(differences), differences)
+		if len(differences) == 4 {
+			// is this a castle??
+			if squaresSame(differences, []chess.Square{chess.E1, chess.F1, chess.G1, chess.H1}) {
+				// white king castle
+				from = chess.E1
+				to = chess.G1
+				differences = nil
+			} else if squaresSame(differences, []chess.Square{chess.E1, chess.A1, chess.C1, chess.D1}) {
+				// white queen castle
+				from = chess.E1
+				to = chess.C1
+				differences = nil
+			} else if squaresSame(differences, []chess.Square{chess.E8, chess.F8, chess.G8, chess.H8}) {
+				// black king castle
+				from = chess.E8
+				to = chess.G8
+				differences = nil
+			} else if squaresSame(differences, []chess.Square{chess.E8, chess.A8, chess.C8, chess.D8}) {
+				// black queen castle
+				from = chess.E8
+				to = chess.C8
+				differences = nil
+			}
+		}
+
+		if len(differences) == 2 || len(differences) == 0 {
+			break
+		}
+
+		if attempt >= badDiffMaxAttempts {
+			return nil, fmt.Errorf("bad number of differences (%d) after %d attempts: %v", len(differences), attempt, differences)
+		}
+
+		s.logger.Warnf("bad number of differences (%d) on attempt %d: %v — recapturing", len(differences), attempt, differences)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		time.Sleep(200 * time.Millisecond)
+		fresh, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("recapture after bad differences (attempt %d): %w", attempt, err)
+		}
+		all = fresh
 	}
 
 	moves := theState.game.ValidMoves()

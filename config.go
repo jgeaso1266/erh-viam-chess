@@ -28,6 +28,8 @@ type ChessConfig struct {
 	GraveyardZ        float64 `json:"graveyard-z"`         // default 60.0 mm
 	GripperOpenPos    float64 `json:"gripper-open-pos"`    // default 450.0
 	SkillAdjust       float64 `json:"skill-adjust"`        // initial engine skill, default 50.0
+
+	BadDiffMaxAttempts int `json:"bad-diff-max-attempts"` // retries on "bad number of differences" during human move detection, default 10
 }
 
 func (cfg *ChessConfig) engine() string {
@@ -84,6 +86,13 @@ func (cfg *ChessConfig) initialSkillAdjust() float64 {
 		return 50.0
 	}
 	return cfg.SkillAdjust
+}
+
+func (cfg *ChessConfig) badDiffMaxAttempts() int {
+	if cfg.BadDiffMaxAttempts <= 0 {
+		return 10
+	}
+	return cfg.BadDiffMaxAttempts
 }
 
 func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {
