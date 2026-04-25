@@ -1,4 +1,4 @@
-import { createRobotClient, createViamClient, GenericServiceClient, StreamClient } from "@viamrobotics/sdk";
+import { createRobotClient, GenericServiceClient, StreamClient } from "@viamrobotics/sdk";
 import { Struct, type JsonValue } from "@viamrobotics/sdk";
 import type { RobotClient } from "@viamrobotics/sdk";
 import Cookies from "js-cookie";
@@ -7,7 +7,6 @@ import Cookies from "js-cookie";
 
 interface MachineCookie {
   apiKey: { id: string; key: string };
-  machineId: string;
   hostname: string;
   machineName?: string;
 }
@@ -227,7 +226,7 @@ async function connect() {
   const raw = Cookies.get(cookieKey);
   if (!raw) throw new Error("Viam machine cookie not found — open this app from the Viam portal.");
   const cookie: MachineCookie = JSON.parse(raw);
-  const { apiKey, hostname, machineName, machineId } = cookie;
+  const { apiKey, hostname, machineName } = cookie;
 
   setStatus("Connecting", "warn");
   const machineEl = document.getElementById("machine-name") as HTMLAnchorElement | null;
@@ -242,28 +241,17 @@ async function connect() {
   chessService = new GenericServiceClient(robot, CHESS_SERVICE_NAME);
   setStatus("in sync", "ok");
 
-  void resolveMachineLink(machineEl, machineId, apiKey);
+  void resolveMachineLink(machineEl);
 }
 
-async function resolveMachineLink(
-  el: HTMLAnchorElement | null,
-  machineId: string,
-  apiKey: { id: string; key: string },
-) {
-  if (!el) return;
+async function resolveMachineLink(el: HTMLAnchorElement | null) {
+  if (!el || !robotClient) return;
   try {
-    const client = await createViamClient({
-      credentials: { type: "api-key", payload: apiKey.key, authEntity: apiKey.id },
-    });
-    const robot = await client.appClient.getRobot(machineId);
-    const locationId = robot?.location;
-    if (!locationId) return;
-    const orgs = await client.appClient.getOrganizationsWithAccessToLocation(locationId);
-    const orgId = orgs[0]?.id;
-    if (!orgId) return;
-    el.href = `https://app.viam.com/machine/${machineId}/control?org=${orgId}`;
+    const meta = await robotClient.getCloudMetadata();
+    if (!meta.machineId || !meta.primaryOrgId) return;
+    el.href = `https://app.viam.com/machine/${meta.machineId}/control?org=${meta.primaryOrgId}`;
   } catch (e) {
-    console.warn("machine link: org lookup failed", e);
+    console.warn("machine link: cloud metadata failed", e);
   }
 }
 
