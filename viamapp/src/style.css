@@ -166,6 +166,8 @@ body {
 }
 .sep-char { color: var(--text-3); font-size: 12px; }
 .machine-name { font-size: 11px; }
+a.machine-name { color: inherit; text-decoration: none; }
+a.machine-name[href]:hover { text-decoration: underline; }
 
 .auto-toggle {
   display: inline-flex;

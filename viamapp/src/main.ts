@@ -1,4 +1,4 @@
-import { createRobotClient, GenericServiceClient } from "@viamrobotics/sdk";
+import { createRobotClient, createViamClient, GenericServiceClient } from "@viamrobotics/sdk";
 import { Struct, type JsonValue } from "@viamrobotics/sdk";
 import Cookies from "js-cookie";
 
@@ -221,10 +221,10 @@ async function connect() {
   const raw = Cookies.get(cookieKey);
   if (!raw) throw new Error("Viam machine cookie not found — open this app from the Viam portal.");
   const cookie: MachineCookie = JSON.parse(raw);
-  const { apiKey, hostname, machineName } = cookie;
+  const { apiKey, hostname, machineName, machineId } = cookie;
 
   setStatus("Connecting", "warn");
-  const machineEl = document.getElementById("machine-name");
+  const machineEl = document.getElementById("machine-name") as HTMLAnchorElement | null;
   if (machineEl) machineEl.textContent = machineName || hostname.split(".")[0] || "—";
 
   const robot = await createRobotClient({
@@ -234,6 +234,30 @@ async function connect() {
   });
   chessService = new GenericServiceClient(robot, CHESS_SERVICE_NAME);
   setStatus("in sync", "ok");
+
+  void resolveMachineLink(machineEl, machineId, apiKey);
+}
+
+async function resolveMachineLink(
+  el: HTMLAnchorElement | null,
+  machineId: string,
+  apiKey: { id: string; key: string },
+) {
+  if (!el) return;
+  try {
+    const client = await createViamClient({
+      credentials: { type: "api-key", payload: apiKey.key, authEntity: apiKey.id },
+    });
+    const robot = await client.appClient.getRobot(machineId);
+    const locationId = robot?.location;
+    if (!locationId) return;
+    const orgs = await client.appClient.getOrganizationsWithAccessToLocation(locationId);
+    const orgId = orgs[0]?.id;
+    if (!orgId) return;
+    el.href = `https://app.viam.com/machine/${machineId}/control?org=${orgId}`;
+  } catch (e) {
+    console.warn("machine link: org lookup failed", e);
+  }
 }
 
 async function doCommand(cmd: Record<string, unknown>): Promise<Record<string, JsonValue>> {
