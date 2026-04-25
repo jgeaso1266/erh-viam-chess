@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/corentings/chess/v2"
 	"github.com/mitchellh/mapstructure"
 
 	"go.viam.com/rdk/vision/viscapture"
@@ -19,17 +18,17 @@ type MoveCmd struct {
 }
 
 type cmdStruct struct {
-	Move          MoveCmd
-	Go            int
-	Reset         bool
-	Wipe          bool
-	Skill         float64
-	Hover         string
-	ClearCache      bool `mapstructure:"clear-cache"`
+	Move            MoveCmd
+	Go              int
+	Reset           bool
+	Wipe            bool
+	Skill           float64
+	Hover           string
+	ClearCache      bool   `mapstructure:"clear-cache"`
 	Undo            int
 	PlayFEN         string `mapstructure:"play-fen"`
-	BoardSnapshot   bool   `mapstructure:"board-snapshot"`
-	DetectHumanMove bool   `mapstructure:"detect-human-move"`
+	BoardSnapshot bool  `mapstructure:"board-snapshot"`
+	Auto          *bool // pointer so explicit false is distinguishable from absent
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -48,7 +47,9 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 	if cmd.Wipe {
 		s.clearSquareCache()
-		return nil, s.wipe(ctx)
+		err := s.wipe(ctx)
+		s.invalidateBoardCache()
+		return nil, err
 	}
 	if cmd.ClearCache {
 		s.clearSquareCache()
@@ -58,61 +59,43 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		s.skillAdjust = cmd.Skill
 		return nil, nil
 	}
-	if cmd.DetectHumanMove {
-		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
-		if err != nil {
-			return nil, err
-		}
-		s.populateCacheFromCapture(all)
-		m, err := s.checkPositionForMoves(ctx, all)
-		if err != nil {
-			return nil, err
-		}
-		result := map[string]interface{}{"detected": m != nil}
-		if m != nil {
-			result["from"] = m.S1().String()
-			result["to"] = m.S2().String()
-			result["uci"] = m.String()
-			if m.HasTag(chess.Capture) || m.HasTag(chess.EnPassant) {
-				result["captured"] = true
-			}
-		}
-		return result, nil
+	if cmd.Auto != nil {
+		s.autoEnabled.Store(*cmd.Auto)
+		return map[string]interface{}{"auto": *cmd.Auto}, nil
 	}
-
 	if cmd.BoardSnapshot {
-		theState, err := s.getGame(ctx)
-		if err != nil {
-			return nil, err
+		// Fast path: read the loop-populated cache; no per-call capture.
+		s.boardCache.mu.RLock()
+		if s.boardCache.ready {
+			result := map[string]interface{}{
+				"fen":             s.boardCache.fen,
+				"camera_board":    s.boardCache.cameraBoard,
+				"white_graveyard": s.boardCache.whiteGraveyard,
+				"black_graveyard": s.boardCache.blackGraveyard,
+				"auto":            s.autoEnabled.Load(),
+				"captured_at_ms":  s.boardCache.capturedAt.UnixMilli(),
+			}
+			s.boardCache.mu.RUnlock()
+			return result, nil
 		}
+		s.boardCache.mu.RUnlock()
+		// Cache empty (loop disabled or pre-first-tick) — capture inline.
 		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
 		if err != nil {
 			return nil, err
 		}
-		cameraBoard := map[string]interface{}{}
-		for _, o := range all.Objects {
-			label := o.Geometry.Label()
-			if idx := strings.LastIndex(label, "-"); idx != -1 {
-				cameraBoard[label[:idx]] = label[idx+1:]
-			}
+		fen, cameraBoard, whiteGY, blackGY, err := s.buildSnapshotData(ctx, all)
+		if err != nil {
+			return nil, err
 		}
-		whiteGY := make([]interface{}, 0, len(theState.whiteGraveyard))
-		for _, p := range theState.whiteGraveyard {
-			if s := pieceIntToFEN(p); s != "" {
-				whiteGY = append(whiteGY, s)
-			}
-		}
-		blackGY := make([]interface{}, 0, len(theState.blackGraveyard))
-		for _, p := range theState.blackGraveyard {
-			if s := pieceIntToFEN(p); s != "" {
-				blackGY = append(blackGY, s)
-			}
-		}
+		_ = s.refreshBoardCache(ctx, all)
 		return map[string]interface{}{
-			"fen":             theState.game.FEN(),
+			"fen":             fen,
 			"camera_board":    cameraBoard,
 			"white_graveyard": whiteGY,
 			"black_graveyard": blackGY,
+			"auto":            s.autoEnabled.Load(),
+			"captured_at_ms":  time.Now().UnixMilli(),
 		}, nil
 	}
 
@@ -155,6 +138,11 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		}
 		if videoFrom != nil {
 			s.saveVideo(ctx, *videoFrom, time.Now().UTC(), videoTags)
+		}
+		// Refresh cache so clients see post-command state without waiting
+		// for the next loop tick.
+		if all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil); err == nil {
+			_ = s.refreshBoardCache(ctx, all)
 		}
 	}()
 
@@ -220,6 +208,67 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 }
 
 const videoSaverTimeFormat = "2006-01-02_15-04-05"
+
+// buildSnapshotData turns a camera capture + saved game state into the
+// board-snapshot wire payload.
+func (s *viamChessChess) buildSnapshotData(ctx context.Context, all viscapture.VisCapture) (
+	fen string,
+	cameraBoard map[string]interface{},
+	whiteGY []interface{},
+	blackGY []interface{},
+	err error,
+) {
+	theState, err := s.getGame(ctx)
+	if err != nil {
+		return
+	}
+	cameraBoard = map[string]interface{}{}
+	for _, o := range all.Objects {
+		label := o.Geometry.Label()
+		if idx := strings.LastIndex(label, "-"); idx != -1 {
+			cameraBoard[label[:idx]] = label[idx+1:]
+		}
+	}
+	whiteGY = make([]interface{}, 0, len(theState.whiteGraveyard))
+	for _, p := range theState.whiteGraveyard {
+		if pStr := pieceIntToFEN(p); pStr != "" {
+			whiteGY = append(whiteGY, pStr)
+		}
+	}
+	blackGY = make([]interface{}, 0, len(theState.blackGraveyard))
+	for _, p := range theState.blackGraveyard {
+		if pStr := pieceIntToFEN(p); pStr != "" {
+			blackGY = append(blackGY, pStr)
+		}
+	}
+	fen = theState.game.FEN()
+	return
+}
+
+// refreshBoardCache rebuilds the snapshot cache from the given camera capture.
+func (s *viamChessChess) refreshBoardCache(ctx context.Context, all viscapture.VisCapture) error {
+	fen, cb, wg, bg, err := s.buildSnapshotData(ctx, all)
+	if err != nil {
+		return err
+	}
+	s.boardCache.mu.Lock()
+	defer s.boardCache.mu.Unlock()
+	s.boardCache.ready = true
+	s.boardCache.fen = fen
+	s.boardCache.cameraBoard = cb
+	s.boardCache.whiteGraveyard = wg
+	s.boardCache.blackGraveyard = bg
+	s.boardCache.capturedAt = time.Now()
+	return nil
+}
+
+// invalidateBoardCache marks the cache stale so the next reader re-captures.
+// Used by wipe, which doesn't go through the post-command refresh defer.
+func (s *viamChessChess) invalidateBoardCache() {
+	s.boardCache.mu.Lock()
+	defer s.boardCache.mu.Unlock()
+	s.boardCache.ready = false
+}
 
 func (s *viamChessChess) saveVideo(ctx context.Context, from, to time.Time, tags []string) {
 	if s.videoSaver == nil {

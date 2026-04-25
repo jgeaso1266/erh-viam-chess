@@ -2,6 +2,7 @@ package viamchess
 
 import (
 	"fmt"
+	"time"
 
 	"go.viam.com/rdk/services/motion"
 )
@@ -30,6 +31,10 @@ type ChessConfig struct {
 	SkillAdjust       float64 `json:"skill-adjust"`        // initial engine skill, default 50.0
 
 	BadDiffMaxAttempts int `json:"bad-diff-max-attempts"` // retries on "bad number of differences" during human move detection, default 10
+
+	// Board-loop cadence in ms. 0/unset disables the loop; board-snapshot
+	// then falls back to per-call captures.
+	BoardLoopIntervalMs int `json:"board-loop-interval-ms"`
 }
 
 func (cfg *ChessConfig) engine() string {
@@ -93,6 +98,14 @@ func (cfg *ChessConfig) badDiffMaxAttempts() int {
 		return 10
 	}
 	return cfg.BadDiffMaxAttempts
+}
+
+// boardLoopInterval returns 0 (disabled) for non-positive values.
+func (cfg *ChessConfig) boardLoopInterval() time.Duration {
+	if cfg.BoardLoopIntervalMs <= 0 {
+		return 0
+	}
+	return time.Duration(cfg.BoardLoopIntervalMs) * time.Millisecond
 }
 
 func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {

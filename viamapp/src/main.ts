@@ -86,28 +86,17 @@ let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshInFlight = false;
 let busy = false;
 
-// Continuous detection poll — always running, regardless of auto-mode.
-// `autoMode` only gates whether the robot auto-replies to a detected human ply.
+// Auto-mode is now server-side. We mirror the toggle locally just for the
+// checkbox UI; the truth comes from board-snapshot's `auto` field.
 let autoMode = false;
-let detectionTimer: ReturnType<typeof setInterval> | null = null;
-let detectionInFlight = false;
-let autoReplyInFlight = false;
-// Active vs idle polling cadence. Each poll triggers a server-side camera
-// capture, so backing off when the kiosk is unattended saves real work.
-const ACTIVE_DETECTION_MS = 1000;
-const ACTIVE_REFRESH_MS = 1500;
+// Active vs idle snapshot cadence. Snapshot reads from a server-side cache
+// (no per-call camera capture), so this is purely about UI freshness.
+const ACTIVE_REFRESH_MS = 500;
 const IDLE_POLL_MS = 10000;
 const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
-let detectionPollMs = ACTIVE_DETECTION_MS;
 let refreshPollMs = ACTIVE_REFRESH_MS;
 let idleMode = false;
 let lastActivityAt = Date.now();
-// Gap between a detected human ply and firing `go 1`. `go`'s internal sanity
-// check re-captures the camera; if the player's hand or piece is still moving
-// it errors with "bad number of differences". Let the board settle first.
-const AUTO_REPLY_DELAY_MS = 1500;
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -198,26 +187,8 @@ function inferSingleMove(
   return null;
 }
 
-type DetectResult =
-  | { kind: "detected"; from: string; to: string; uci: string }
-  | { kind: "none" }
-  | { kind: "error"; msg: string; benign: boolean };
-
-async function detectHumanMove(): Promise<DetectResult> {
-  try {
-    const res = await doCommand({ "detect-human-move": true });
-    console.debug("[detect]", res);
-    if (res.detected && typeof res.from === "string" && typeof res.to === "string") {
-      return { kind: "detected", from: res.from, to: res.to, uci: (res.uci as string) ?? `${res.from}${res.to}` };
-    }
-    return { kind: "none" };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const benign = msg.includes("bad number of differences");
-    console.debug("[detect] error", { msg, benign });
-    return { kind: "error", msg, benign };
-  }
-}
+// (Detection lives on the server — see runAutoLoop in play.go. The client
+// reflects detected plies via the FEN-diff inference path in applySnapshot.)
 
 // ── Connection ─────────────────────────────────────────────────────────────
 
@@ -630,6 +601,11 @@ function applySnapshot(res: Record<string, JsonValue>) {
     if (Array.isArray(res.white_graveyard)) whiteGraveyard = res.white_graveyard as string[];
     if (Array.isArray(res.black_graveyard)) blackGraveyard = res.black_graveyard as string[];
   }
+  if (typeof res.auto === "boolean" && res.auto !== autoMode) {
+    autoMode = res.auto;
+    const cb = document.getElementById("auto-mode") as HTMLInputElement | null;
+    if (cb) cb.checked = autoMode;
+  }
   cameraBoard =
     res.camera_board && typeof res.camera_board === "object"
       ? (res.camera_board as Record<string, string>)
@@ -652,7 +628,6 @@ function applySnapshot(res: Record<string, JsonValue>) {
     pushMoveToTape(inferredExternal.from, inferredExternal.to, `${inferredExternal.from}${inferredExternal.to}`);
     pushEvent("go", "inferred from fen diff");
     if (idleMode) setIdle(false);
-    void triggerAutoReply();
   }
 }
 
@@ -673,10 +648,10 @@ function resetTape() {
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────
-// Client-only state (tape, ply count, last-move readout, auto-mode toggle)
-// survives a page reload. Graveyards/board come from the server on reconnect.
+// Client-only state (tape, ply count, last-move readout) survives a page
+// reload. Graveyards/board/auto come from the server on reconnect.
 
-const STORAGE_KEY = "garry.chess.state.v1";
+const STORAGE_KEY = "garry.chess.state.v2";
 const mockMode = new URLSearchParams(window.location.search).has("mock");
 
 function persistState() {
@@ -684,7 +659,7 @@ function persistState() {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ tapeItems, plyCount, autoMode, lastMove })
+      JSON.stringify({ tapeItems, plyCount, lastMove })
     );
   } catch (e) {
     console.warn("[persist] save failed", e);
@@ -698,7 +673,6 @@ function loadPersistedState() {
     const data = JSON.parse(raw);
     if (Array.isArray(data.tapeItems)) tapeItems = data.tapeItems;
     if (typeof data.plyCount === "number") plyCount = data.plyCount;
-    if (typeof data.autoMode === "boolean") autoMode = data.autoMode;
     if (data.lastMove && typeof data.lastMove.from === "string") lastMove = data.lastMove;
   } catch (e) {
     console.warn("[persist] load failed", e);
@@ -764,30 +738,25 @@ function startAutoRefresh() {
   autoRefreshTimer = setInterval(refreshState, refreshPollMs);
 }
 
-// ── Auto mode ──────────────────────────────────────────────────────────────
+// ── Auto mode toggle ───────────────────────────────────────────────────────
+// Server is authoritative; the client just sends a doCommand.
 
-function setAutoMode(enabled: boolean) {
+async function setAutoModeOnServer(enabled: boolean): Promise<boolean> {
+  await doCommand({ auto: enabled });
   autoMode = enabled;
   pushEvent("go", `auto: ${enabled ? "on" : "off"}`);
-  persistState();
-}
-
-function startDetectionPoll() {
-  if (detectionTimer) clearInterval(detectionTimer);
-  detectionTimer = setInterval(() => { void detectionTick(); }, detectionPollMs);
+  return true;
 }
 
 // ── Idle mode ──────────────────────────────────────────────────────────────
-// After IDLE_THRESHOLD_MS without user activity, slow polls to IDLE_POLL_MS.
-// Wake on user input, an observed FEN change, or a successful detection.
+// After IDLE_THRESHOLD_MS without user activity, slow snapshot polling to
+// IDLE_POLL_MS. Wake on user input, an observed FEN change, or a reset event.
 
 function setIdle(idle: boolean) {
   if (idleMode === idle) return;
   idleMode = idle;
-  detectionPollMs = idle ? IDLE_POLL_MS : ACTIVE_DETECTION_MS;
   refreshPollMs = idle ? IDLE_POLL_MS : ACTIVE_REFRESH_MS;
   startAutoRefresh();
-  startDetectionPoll();
   updateStatusFromMismatches();
   // Drop the WebRTC stream while idle — it's pure bandwidth otherwise — and
   // resume it on wake if the panel is still expanded.
@@ -819,71 +788,6 @@ function startIdleWatch() {
   }, 10_000);
 }
 
-async function triggerAutoReply() {
-  if (autoReplyInFlight) return;
-  if (!autoMode) {
-    pushEvent("go", "auto · off, skipping reply");
-    return;
-  }
-  if (currentTurn !== "b") {
-    pushEvent("go", `auto · skip (${currentTurn === "w" ? "white" : currentTurn} to move)`);
-    return;
-  }
-  autoReplyInFlight = true;
-  try {
-    pushEvent("go", "auto · replying");
-    // Pause the 1.5s auto-refresh so it doesn't overwrite the pill during the
-    // settle delay. withBusy's finally will restart it.
-    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-    setStatus(`auto · replying in ${(AUTO_REPLY_DELAY_MS / 1000).toFixed(1)}s`, "warn");
-    await sleep(AUTO_REPLY_DELAY_MS);
-    setStatus("auto · thinking", "warn");
-    try {
-      await withBusy(async () => {
-        const res = await doCommand({ go: 1 });
-        const move = typeof res.move === "string" ? res.move : "";
-        const m = move.match(/^([a-h][1-8])[-\s]?([a-h][1-8])/);
-        if (m) pushMoveToTape(m[1], m[2], move);
-        pushEvent("go", `auto · ${move}`);
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      pushEvent("err", `auto go: ${msg}`);
-      updateStatusFromMismatches();
-      if (!autoRefreshTimer) startAutoRefresh();
-    }
-  } finally {
-    autoReplyInFlight = false;
-  }
-}
-
-async function detectionTick() {
-  if (detectionInFlight || busy || !chessService) return;
-  detectionInFlight = true;
-  try {
-    const result = await detectHumanMove();
-    if (result.kind === "error") {
-      if (!result.benign) pushEvent("err", `detect: ${result.msg}`);
-      return;
-    }
-    if (result.kind === "none") return;
-    pushMoveToTape(result.from, result.to, result.uci);
-    if (idleMode) setIdle(false);
-    // Server registered the move; pull the updated FEN/graveyards/camera.
-    // (Direct doCommand call bypasses refreshState's in-flight guard.)
-    serverAuthoritative = true;
-    try {
-      const snap = await doCommand({ "board-snapshot": true });
-      applySnapshot(snap);
-    } catch {
-      /* ignore — proceed with whatever state we have */
-    }
-    await triggerAutoReply();
-  } finally {
-    detectionInFlight = false;
-  }
-}
-
 // ── Commands ───────────────────────────────────────────────────────────────
 
 function setBusy(next: boolean) {
@@ -909,12 +813,9 @@ async function cmdGo() {
   serverAuthoritative = true;
   try {
     await withBusy(async () => {
-      // Register any unplayed human ply first so the tape reflects it before
-      // the engine response. The `go` call's own sanity check will then see
-      // a clean diff and just pick the engine's move.
-      const pre = await detectHumanMove();
-      if (pre.kind === "detected") pushMoveToTape(pre.from, pre.to, pre.uci);
-
+      // `go`'s first iteration runs checkPositionForMoves itself, so any
+      // unregistered human ply gets recorded server-side; the FEN-diff
+      // inference in applySnapshot picks it up into the tape.
       const res = await doCommand({ go: n });
       const move = typeof res.move === "string" ? res.move : "";
       const m = move.match(/^([a-h][1-8])[-\s]?([a-h][1-8])/);
@@ -1130,8 +1031,17 @@ document.getElementById("move-to")!.addEventListener("keydown", (e) => {
 document.getElementById("go-n")!.addEventListener("keydown", (e) => {
   if ((e as KeyboardEvent).key === "Enter") void cmdGo();
 });
-document.getElementById("auto-mode")!.addEventListener("change", (e) => {
-  setAutoMode((e.target as HTMLInputElement).checked);
+document.getElementById("auto-mode")!.addEventListener("change", async (e) => {
+  const cb = e.target as HTMLInputElement;
+  const next = cb.checked;
+  try {
+    await setAutoModeOnServer(next);
+  } catch (err) {
+    cb.checked = !next;
+    autoMode = !next;
+    const msg = err instanceof Error ? err.message : String(err);
+    pushEvent("err", `auto toggle: ${msg}`);
+  }
 });
 document.getElementById("cam-toggle")!.addEventListener("click", toggleCamera);
 document.querySelectorAll(".inline-error-dismiss").forEach((b) => {
@@ -1180,7 +1090,7 @@ if (mockMode) {
 } else {
   connect()
     .then(refreshState)
-    .then(() => { startAutoRefresh(); startDetectionPoll(); startIdleWatch(); })
+    .then(() => { startAutoRefresh(); startIdleWatch(); })
     .catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       setStatus("offline", "err");

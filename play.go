@@ -543,3 +543,76 @@ func squaresSame(a, b []chess.Square) bool {
 	}
 	return true
 }
+
+// runBoardLoop captures the camera each tick, registers any human ply via
+// checkPositionForMoves, refreshes boardCache, and (when `auto` is on and
+// it's black to move) plays the engine reply. Holds doCommandLock per tick
+// so manual commands interleave.
+func (s *viamChessChess) runBoardLoop(ctx context.Context) {
+	interval := s.conf.boardLoopInterval()
+	if interval == 0 {
+		s.logger.Info("board loop disabled by config (board-loop-interval-ms=0)")
+		return
+	}
+	s.logger.Infof("board loop starting at %v cadence", interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.boardTick(ctx)
+		}
+	}
+}
+
+func (s *viamChessChess) boardTick(ctx context.Context) {
+	ctx, span := trace.StartSpan(ctx, "boardTick")
+	defer span.End()
+
+	s.doCommandLock.Lock()
+	defer s.doCommandLock.Unlock()
+
+	if err := s.goToStart(ctx); err != nil {
+		s.logger.Debugf("auto tick: goToStart failed: %v", err)
+		return
+	}
+	all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+	if err != nil {
+		s.logger.Debugf("auto tick: capture failed: %v", err)
+		return
+	}
+	s.populateCacheFromCapture(all)
+
+	// Detection runs regardless of auto; mid-move errors are benign.
+	m, err := s.checkPositionForMoves(ctx, all)
+	if err != nil {
+		s.logger.Debugf("board tick: detection skipped: %v", err)
+	}
+
+	if cacheErr := s.refreshBoardCache(ctx, all); cacheErr != nil {
+		s.logger.Debugf("board tick: cache refresh failed: %v", cacheErr)
+	}
+
+	if m == nil || !s.autoEnabled.Load() {
+		return
+	}
+	theState, err := s.getGame(ctx)
+	if err != nil {
+		return
+	}
+	if theState.game.Position().Turn() != chess.Black {
+		return // auto plays black only
+	}
+	if _, err := s.makeAMove(ctx, false); err != nil {
+		s.logger.Warnf("auto reply failed: %v", err)
+		return
+	}
+	// Refresh again so the post-reply state lands in the cache without
+	// waiting for the next tick.
+	all2, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
+	if err == nil {
+		_ = s.refreshBoardCache(ctx, all2)
+	}
+}

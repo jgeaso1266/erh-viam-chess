@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.uber.org/multierr"
 
@@ -75,6 +76,22 @@ type viamChessChess struct {
 
 	squareXY   map[string]r3.Vector
 	squareXYMu sync.RWMutex
+
+	// autoEnabled gates the engine reply in the board loop; detection + cache
+	// refresh always run.
+	autoEnabled atomic.Bool
+
+	// boardCache holds the last camera-derived snapshot, populated by the
+	// board loop and read by board-snapshot. Guarded by mu.
+	boardCache struct {
+		mu             sync.RWMutex
+		ready          bool
+		fen            string
+		cameraBoard    map[string]interface{}
+		whiteGraveyard []interface{}
+		blackGraveyard []interface{}
+		capturedAt     time.Time
+	}
 }
 
 func newViamChessChess(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -160,6 +177,7 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 	}
 
 	go s.runCaptureThread(cancelCtx)
+	go s.runBoardLoop(cancelCtx)
 
 	err = s.engine.Run(uci.CmdUCI, uci.CmdIsReady, uci.CmdUCINewGame) // TODO: not sure this is correct
 	if err != nil {

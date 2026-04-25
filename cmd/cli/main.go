@@ -37,6 +37,7 @@ func realMain() error {
 	n := flag.Int("n", 1, "")
 	fenFile := flag.String("fen-file", "", "path to PGN file for play-fen command")
 	skill := flag.Float64("skill", 0, "engine skill level (0-100) for skill command")
+	on := flag.Bool("on", false, "auto on/off for `auto` command")
 	flag.Parse()
 
 	if *debug {
@@ -206,9 +207,9 @@ func realMain() error {
 		logger.Infof("res: %v", res)
 		return nil
 
-	case "detect-human-move":
+	case "auto":
 		res, err := thing.DoCommand(ctx, map[string]interface{}{
-			"detect-human-move": true,
+			"auto": *on,
 		})
 		if err != nil {
 			return err
