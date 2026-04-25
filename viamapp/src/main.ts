@@ -1,5 +1,6 @@
-import { createRobotClient, createViamClient, GenericServiceClient } from "@viamrobotics/sdk";
+import { createRobotClient, createViamClient, GenericServiceClient, StreamClient } from "@viamrobotics/sdk";
 import { Struct, type JsonValue } from "@viamrobotics/sdk";
+import type { RobotClient } from "@viamrobotics/sdk";
 import Cookies from "js-cookie";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -55,8 +56,13 @@ const PIECE_VALUE: Record<string, number> = { P: 1, N: 3, B: 3, R: 5, Q: 9, K: 0
 // ── State ──────────────────────────────────────────────────────────────────
 
 const CHESS_SERVICE_NAME = "chess";
+const CAMERA_NAME = "cam-above";
 
 let chessService: GenericServiceClient | null = null;
+let robotClient: RobotClient | null = null;
+let camStream: MediaStream | null = null;
+let camStreamClient: StreamClient | null = null;
+let camAttachInFlight = false;
 let currentFen: string | null = null;
 let currentBoard: (string | null)[][] = emptyBoard();
 let currentTurn: "w" | "b" = "w";
@@ -232,6 +238,7 @@ async function connect() {
     signalingAddress: "https://app.viam.com:443",
     credentials: { type: "api-key", payload: apiKey.key, authEntity: apiKey.id },
   });
+  robotClient = robot;
   chessService = new GenericServiceClient(robot, CHESS_SERVICE_NAME);
   setStatus("in sync", "ok");
 
@@ -1055,6 +1062,60 @@ function labelFor(id: EvtType): string {
   }
 }
 
+// ── Camera feed ────────────────────────────────────────────────────────────
+
+function setCamStatus(text: string) {
+  const el = document.getElementById("cam-status");
+  if (el) el.textContent = text;
+}
+
+async function attachCamera() {
+  if (camStream || camAttachInFlight) return;
+  if (!robotClient) {
+    setCamStatus("offline");
+    return;
+  }
+  camAttachInFlight = true;
+  setCamStatus("connecting…");
+  try {
+    if (!camStreamClient) camStreamClient = new StreamClient(robotClient);
+    const stream = await camStreamClient.getStream(CAMERA_NAME);
+    const video = document.getElementById("cam-video") as HTMLVideoElement | null;
+    if (video) video.srcObject = stream;
+    camStream = stream;
+    setCamStatus("");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("camera attach failed", e);
+    setCamStatus("error");
+    pushEvent("err", `camera: ${msg}`);
+  } finally {
+    camAttachInFlight = false;
+  }
+}
+
+async function detachCamera() {
+  const video = document.getElementById("cam-video") as HTMLVideoElement | null;
+  if (video) video.srcObject = null;
+  camStream?.getTracks().forEach((t) => t.stop());
+  camStream = null;
+  if (camStreamClient) {
+    try { await camStreamClient.remove(CAMERA_NAME); } catch (e) { console.debug("cam remove", e); }
+  }
+  setCamStatus("");
+}
+
+function toggleCamera() {
+  const panel = document.getElementById("cam-panel");
+  const toggle = document.getElementById("cam-toggle");
+  if (!panel || !toggle) return;
+  const willExpand = panel.classList.contains("collapsed");
+  panel.classList.toggle("collapsed", !willExpand);
+  toggle.setAttribute("aria-expanded", String(willExpand));
+  if (willExpand) void attachCamera();
+  else void detachCamera();
+}
+
 // ── Wire events ────────────────────────────────────────────────────────────
 
 document.getElementById("btn-go")!.addEventListener("click", () => void cmdGo());
@@ -1073,6 +1134,7 @@ document.getElementById("go-n")!.addEventListener("keydown", (e) => {
 document.getElementById("auto-mode")!.addEventListener("change", (e) => {
   setAutoMode((e.target as HTMLInputElement).checked);
 });
+document.getElementById("cam-toggle")!.addEventListener("click", toggleCamera);
 document.querySelectorAll(".inline-error-dismiss").forEach((b) => {
   b.addEventListener("click", (e) => {
     const parent = (e.currentTarget as HTMLElement).closest(".inline-error");

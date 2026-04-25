@@ -589,6 +589,49 @@ a.machine-name[href]:hover { text-decoration: underline; }
 .tape-evt-label { color: var(--text-2); }
 .tape-evt.err .tape-evt-label { color: var(--text-1); }
 
+/* Camera panel */
+.cam-panel {
+  border-top: 1px solid var(--line-1);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.cam-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: transparent;
+  border: 0;
+  color: var(--text-1);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.cam-toggle:hover { background: var(--bg-1); }
+.cam-toggle-chevron {
+  color: var(--text-3);
+  font-size: 11px;
+  width: 10px;
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.cam-panel:not(.collapsed) .cam-toggle-chevron { transform: rotate(90deg); }
+.cam-panel #cam-status { margin-left: auto; }
+.cam-body {
+  display: none;
+  background: var(--bg-0);
+  border-top: 1px solid var(--line-1);
+}
+.cam-panel:not(.collapsed) .cam-body { display: block; }
+.cam-body video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  object-fit: contain;
+}
+
 /* Bottom bar */
 .bottom-bar {
   border-top: 1px solid var(--line-1);
@@ -670,5 +713,6 @@ a.machine-name[href]:hover { text-decoration: underline; }
 .app.kiosk .tape-coord { font-size: 12px; }
 .app.kiosk .tape-evt { padding: 4px 22px; font-size: 12px; }
 .app.kiosk .tape-evt-tag { width: 56px; }
+.app.kiosk .cam-toggle { padding: 14px 22px; }
 
 .app.kiosk .bottom-bar { padding: 14px 24px; gap: 16px; }

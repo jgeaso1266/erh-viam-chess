@@ -131,6 +131,17 @@
             <span id="tape-ply" class="mono subtle-2 xs">0 ply</span>
           </div>
           <div id="tape" class="tape"></div>
+
+          <div id="cam-panel" class="cam-panel collapsed">
+            <button id="cam-toggle" class="cam-toggle" type="button" aria-expanded="false" aria-controls="cam-body">
+              <span class="cam-toggle-chevron" aria-hidden="true">▸</span>
+              <span class="eyebrow">Live camera</span>
+              <span id="cam-status" class="mono subtle-2 xs"></span>
+            </button>
+            <div id="cam-body" class="cam-body">
+              <video id="cam-video" autoplay playsinline muted></video>
+            </div>
+          </div>
         </aside>
       </div>
 
