@@ -87,7 +87,16 @@ let autoMode = false;
 let detectionTimer: ReturnType<typeof setInterval> | null = null;
 let detectionInFlight = false;
 let autoReplyInFlight = false;
-const DETECTION_POLL_MS = 1000;
+// Active vs idle polling cadence. Each poll triggers a server-side camera
+// capture, so backing off when the kiosk is unattended saves real work.
+const ACTIVE_DETECTION_MS = 1000;
+const ACTIVE_REFRESH_MS = 1500;
+const IDLE_POLL_MS = 10000;
+const IDLE_THRESHOLD_MS = 5 * 60 * 1000;
+let detectionPollMs = ACTIVE_DETECTION_MS;
+let refreshPollMs = ACTIVE_REFRESH_MS;
+let idleMode = false;
+let lastActivityAt = Date.now();
 // Gap between a detected human ply and firing `go 1`. `go`'s internal sanity
 // check re-captures the camera; if the player's hand or piece is still moving
 // it errors with "bad number of differences". Let the board settle first.
@@ -246,8 +255,9 @@ function setStatus(label: string, level: "ok" | "warn" | "err") {
 }
 
 function updateStatusFromMismatches() {
-  if (mismatches.length === 0) setStatus("in sync", "ok");
-  else setStatus(`${mismatches.length} diff`, "warn");
+  const suffix = idleMode ? " · idle" : "";
+  if (mismatches.length === 0) setStatus("in sync" + suffix, "ok");
+  else setStatus(`${mismatches.length} diff${suffix}`, "warn");
 }
 
 // ── Board rendering ────────────────────────────────────────────────────────
@@ -618,9 +628,11 @@ function applySnapshot(res: Record<string, JsonValue>) {
     pushEvent("reset", "observed reset from another client");
     renderTape();
     renderTopStatus();
+    if (idleMode) setIdle(false);
   } else if (inferredExternal) {
     pushMoveToTape(inferredExternal.from, inferredExternal.to, `${inferredExternal.from}${inferredExternal.to}`);
     pushEvent("go", "inferred from fen diff");
+    if (idleMode) setIdle(false);
     void triggerAutoReply();
   }
 }
@@ -730,7 +742,7 @@ async function refreshState() {
 
 function startAutoRefresh() {
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-  autoRefreshTimer = setInterval(refreshState, 1500);
+  autoRefreshTimer = setInterval(refreshState, refreshPollMs);
 }
 
 // ── Auto mode ──────────────────────────────────────────────────────────────
@@ -743,7 +755,38 @@ function setAutoMode(enabled: boolean) {
 
 function startDetectionPoll() {
   if (detectionTimer) clearInterval(detectionTimer);
-  detectionTimer = setInterval(() => { void detectionTick(); }, DETECTION_POLL_MS);
+  detectionTimer = setInterval(() => { void detectionTick(); }, detectionPollMs);
+}
+
+// ── Idle mode ──────────────────────────────────────────────────────────────
+// After IDLE_THRESHOLD_MS without user activity, slow polls to IDLE_POLL_MS.
+// Wake on user input, an observed FEN change, or a successful detection.
+
+function setIdle(idle: boolean) {
+  if (idleMode === idle) return;
+  idleMode = idle;
+  detectionPollMs = idle ? IDLE_POLL_MS : ACTIVE_DETECTION_MS;
+  refreshPollMs = idle ? IDLE_POLL_MS : ACTIVE_REFRESH_MS;
+  startAutoRefresh();
+  startDetectionPoll();
+  updateStatusFromMismatches();
+  pushEvent("go", `idle: ${idle ? "sleeping" : "waking"}`);
+}
+
+function recordActivity() {
+  lastActivityAt = Date.now();
+  if (idleMode) setIdle(false);
+}
+
+function startIdleWatch() {
+  ["mousemove", "keydown", "touchstart", "click"].forEach((evt) => {
+    document.addEventListener(evt, recordActivity, { passive: true });
+  });
+  setInterval(() => {
+    if (!idleMode && Date.now() - lastActivityAt > IDLE_THRESHOLD_MS) {
+      setIdle(true);
+    }
+  }, 10_000);
 }
 
 async function triggerAutoReply() {
@@ -795,6 +838,7 @@ async function detectionTick() {
     }
     if (result.kind === "none") return;
     pushMoveToTape(result.from, result.to, result.uci);
+    if (idleMode) setIdle(false);
     // Server registered the move; pull the updated FEN/graveyards/camera.
     // (Direct doCommand call bypasses refreshState's in-flight guard.)
     serverAuthoritative = true;
@@ -1051,7 +1095,7 @@ if (mockMode) {
 } else {
   connect()
     .then(refreshState)
-    .then(() => { startAutoRefresh(); startDetectionPoll(); })
+    .then(() => { startAutoRefresh(); startDetectionPoll(); startIdleWatch(); })
     .catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       setStatus("offline", "err");
