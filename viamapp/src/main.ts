@@ -222,7 +222,13 @@ async function detectHumanMove(): Promise<DetectResult> {
 
 async function connect() {
   const cookieKey = window.location.pathname.split("/")[2];
-  const raw = Cookies.get(cookieKey);
+  let raw = Cookies.get(cookieKey);
+  // local-app-testing proxy names the cookie after the machine ID, not the path segment.
+  if (!raw) {
+    for (const val of Object.values(Cookies.get())) {
+      try { if ((JSON.parse(val) as MachineCookie).apiKey) { raw = val; break; } } catch {}
+    }
+  }
   if (!raw) throw new Error("Viam machine cookie not found — open this app from the Viam portal.");
   const cookie: MachineCookie = JSON.parse(raw);
   const { apiKey, hostname, machineName } = cookie;
