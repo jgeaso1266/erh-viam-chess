@@ -133,15 +133,17 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		if to == "-" {
 			// Placing a captured piece into the graveyard.
 			// Determine its color from the source square so we can place it on the correct side.
-			colorIdx, isWhite := 0, false
+			// Slot 0 in each graveyard is reserved for the spare queen used
+			// during pawn promotion; captured pieces fill slots 1, 2, …
+			colorIdx, isWhite := 1, false
 			if theState != nil && len(from) == 2 {
 				sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
 				piece := theState.game.Position().Board().Piece(sq)
 				isWhite = piece.Color() == chess.White
 				if isWhite {
-					colorIdx = len(theState.whiteGraveyard)
+					colorIdx = len(theState.whiteGraveyard) + 1
 				} else {
-					colorIdx = len(theState.blackGraveyard)
+					colorIdx = len(theState.blackGraveyard) + 1
 				}
 			}
 			center, err := s.graveyardPosition(data, colorIdx, isWhite)

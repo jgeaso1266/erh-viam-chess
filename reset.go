@@ -38,11 +38,13 @@ func (s *resetState) applyMove(from, to chess.Square) error {
 }
 
 func squareToString(s chess.Square) string {
+	// Graveyard physical slot 0 is the pawn-promotion spare queen; captured
+	// pieces occupy slots 1, 2, … so slice index i maps to physical slot i+1.
 	if s >= 85 {
-		return fmt.Sprintf("XB%d", int(s)-85)
+		return fmt.Sprintf("XB%d", int(s)-85+1)
 	}
 	if s >= 70 {
-		return fmt.Sprintf("XW%d", int(s)-70)
+		return fmt.Sprintf("XW%d", int(s)-70+1)
 	}
 	return s.String()
 }
@@ -132,6 +134,13 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 	}
 	s.populateCacheFromCapture(all)
 
+	// Pre-pass: if a promotion occurred, the board carries an extra queen of
+	// that color. Move it back to the reserved graveyard slot so the normal
+	// reset loop sees exactly one queen per color and the spare is re-stocked.
+	if err := s.restoreExtraQueens(ctx, all, theState); err != nil {
+		return err
+	}
+
 	for {
 		from, to, err := nextResetMove(theState)
 		if err != nil {
@@ -165,4 +174,68 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 	}
 
 	return s.wipe(ctx)
+}
+
+// restoreExtraQueens moves any same-color duplicate queen(s) off the board and
+// back into the reserved graveyard slot. Handles up to one extra queen per
+// color (v1 only supports one promotion per side, matching the single reserve slot).
+func (s *viamChessChess) restoreExtraQueens(ctx context.Context, all viscapture.VisCapture, theState *resetState) error {
+	for _, color := range []chess.Color{chess.White, chess.Black} {
+		queens := findQueenSquares(theState.board, color)
+		if len(queens) <= 1 {
+			continue
+		}
+		extraSq := pickExtraQueen(queens, color)
+
+		slot := fmt.Sprintf("XW%d", extraQueenGraveyardSlot)
+		if color == chess.Black {
+			slot = fmt.Sprintf("XB%d", extraQueenGraveyardSlot)
+		}
+
+		if err := s.movePiece(ctx, all, nil, extraSq.String(), slot, nil, theState.board); err != nil {
+			return fmt.Errorf("restore extra %v queen from %s to %s: %w", color, extraSq, slot, err)
+		}
+
+		m := theState.board.SquareMap()
+		m[extraSq] = chess.NoPiece
+		theState.board = chess.NewBoard(m)
+
+		sqStr := extraSq.String()
+		for _, o := range all.Objects {
+			if strings.HasPrefix(o.Geometry.Label(), sqStr+"-") {
+				o.Geometry.SetLabel(sqStr + "-0")
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func findQueenSquares(b *chess.Board, color chess.Color) []chess.Square {
+	var out []chess.Square
+	for sq := chess.A1; sq <= chess.H8; sq++ {
+		p := b.Piece(sq)
+		if p.Type() == chess.Queen && p.Color() == color {
+			out = append(out, sq)
+		}
+	}
+	return out
+}
+
+// pickExtraQueen prefers a queen that is NOT on its home square (d1 for white,
+// d8 for black). If the original queen is still at home, this picks the
+// promoted one. If all queens are already off-home (or multiple are on home
+// because of promotion to a home square), either works equivalently — the
+// normal reset loop fills in the missing home queen from whatever remains.
+func pickExtraQueen(queens []chess.Square, color chess.Color) chess.Square {
+	home := chess.D1
+	if color == chess.Black {
+		home = chess.D8
+	}
+	for _, sq := range queens {
+		if sq != home {
+			return sq
+		}
+	}
+	return queens[0]
 }

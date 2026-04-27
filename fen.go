@@ -86,8 +86,14 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			}
 		}
 
-		if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil); err != nil {
-			return fmt.Errorf("playFENFile move %d (%s): %w", i+1, m.String(), err)
+		if m.Promo() != chess.NoPieceType {
+			if err := s.handlePromotionMove(ctx, all, theState, m); err != nil {
+				return fmt.Errorf("playFENFile promote move %d (%s): %w", i+1, m.String(), err)
+			}
+		} else {
+			if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil); err != nil {
+				return fmt.Errorf("playFENFile move %d (%s): %w", i+1, m.String(), err)
+			}
 		}
 
 		if err := theState.game.Move(m, nil); err != nil {

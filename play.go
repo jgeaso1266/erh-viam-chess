@@ -18,32 +18,44 @@ func (s *viamChessChess) pickMove(ctx context.Context, game *chess.Game) (*chess
 	ctx, span := trace.StartSpan(ctx, "pickMove")
 	defer span.End()
 
+	var picked *chess.Move
 	if s.engine == nil {
 		moves := game.ValidMoves()
 		if len(moves) == 0 {
 			return nil, fmt.Errorf("no valid moves")
 		}
-		return &moves[0], nil
+		picked = &moves[0]
+	} else {
+		multiplier := 1.0
+		if s.skillAdjust < 50 {
+			multiplier = float64(s.skillAdjust) / 50.0
+			s.logger.Infof("multiplier: %v", multiplier)
+		} else if s.skillAdjust > 50 {
+			multiplier = float64(s.skillAdjust-50) * 2
+			s.logger.Infof("multiplier: %v", multiplier)
+		}
+
+		cmdPos := uci.CmdPosition{Position: game.Position()}
+		cmdGo := uci.CmdGo{MoveTime: time.Millisecond * time.Duration(float64(s.conf.engineMillis())*multiplier)}
+		err := s.engine.Run(cmdPos, cmdGo)
+		if err != nil {
+			return nil, err
+		}
+		picked = s.engine.SearchResults().BestMove
 	}
 
-	multiplier := 1.0
-	if s.skillAdjust < 50 {
-		multiplier = float64(s.skillAdjust) / 50.0
-		s.logger.Infof("multiplier: %v", multiplier)
-	} else if s.skillAdjust > 50 {
-		multiplier = float64(s.skillAdjust-50) * 2
-		s.logger.Infof("multiplier: %v", multiplier)
+	// Auto-queen: rewrite non-queen promotions to the queen variant.
+	if picked.Promo() != chess.NoPieceType && picked.Promo() != chess.Queen {
+		for _, vm := range game.ValidMoves() {
+			if vm.S1() == picked.S1() && vm.S2() == picked.S2() && vm.Promo() == chess.Queen {
+				vm := vm
+				picked = &vm
+				break
+			}
+		}
 	}
 
-	cmdPos := uci.CmdPosition{Position: game.Position()}
-	cmdGo := uci.CmdGo{MoveTime: time.Millisecond * time.Duration(float64(s.conf.engineMillis())*multiplier)}
-	err := s.engine.Run(cmdPos, cmdGo)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.engine.SearchResults().BestMove, nil
-
+	return picked, nil
 }
 
 func (s *viamChessChess) makeNMoves(ctx context.Context, n int) ([]*chess.Move, error) {
@@ -159,9 +171,15 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		}
 	}
 
-	err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil)
-	if err != nil {
-		return nil, err
+	if m.Promo() != chess.NoPieceType {
+		if err := s.handlePromotionMove(ctx, all, theState, m); err != nil {
+			return nil, err
+		}
+	} else {
+		err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	err = theState.game.Move(m, nil)
@@ -197,6 +215,12 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 	}
 
 	keepCount := len(moves) - n
+
+	for i := keepCount; i < len(moves); i++ {
+		if moves[i].Promo() != chess.NoPieceType {
+			return fmt.Errorf("cannot undo through promotion move %s", moves[i].String())
+		}
+	}
 
 	// Fresh snapshot for physical moves and to populate the square position cache.
 	err = s.goToStart(ctx)
@@ -488,6 +512,17 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 			err = theState.game.Move(&m, nil)
 			if err != nil {
 				return nil, err
+			}
+
+			// For a human-made promotion, the human physically performs the
+			// pawn→queen swap themselves. Record the vanished pawn in the
+			// graveyard so reset/snapshot stay consistent.
+			if m.Promo() != chess.NoPieceType {
+				if m.S2().Rank() == chess.Rank8 {
+					theState.whiteGraveyard = append(theState.whiteGraveyard, int(chess.WhitePawn))
+				} else {
+					theState.blackGraveyard = append(theState.blackGraveyard, int(chess.BlackPawn))
+				}
 			}
 
 			err = s.saveGame(ctx, theState)
