@@ -158,13 +158,6 @@ function sumValue(pieces: string[]): number {
   return pieces.reduce((a, p) => a + (PIECE_VALUE[p.toUpperCase()] ?? 0), 0);
 }
 
-function sortCaptured(pieces: string[]): string[] {
-  const order = ["Q", "R", "B", "N", "P"];
-  return [...pieces].sort(
-    (a, b) => order.indexOf(a.toUpperCase()) - order.indexOf(b.toUpperCase())
-  );
-}
-
 // Infer a single-ply move from a before/after board diff. Returns null when
 // the diff doesn't cleanly resolve to one from + one to (e.g., castling, en
 // passant, or multi-ply jump). Used when state advances externally (another
@@ -493,7 +486,7 @@ function renderCaptured(id: string, pieces: string[]) {
     el.appendChild(empty);
     return;
   }
-  for (const p of sortCaptured(pieces)) {
+  for (const p of pieces) {
     const url = pieceUrl(p);
     if (!url) continue;
     const img = document.createElement("img");
