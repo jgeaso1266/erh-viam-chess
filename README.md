@@ -64,6 +64,36 @@ Reset restores the spare queen back into slot 0 automatically.
 
 Only one promotion per color per game is supported (slot 0 holds a single spare). Undoing through a promotion move is not supported.
 
+## DoCommand reference
+
+All commands are sent via `DoCommand` on the chess generic service. Pass exactly one of the keys below per call. Squares are lowercase algebraic (`a1`–`h8`).
+
+| key | payload | description |
+| --- | --- | --- |
+| `move` | `{"from": "<sq>", "to": "<sq>", "n": <int>}` | Physically pick up the piece at `from` and place it at `to`. Repeats `n` times, alternating direction each iteration (so `n=2` ends back where it started). Captures are recorded in the graveyard. |
+| `go` | `<int>` | Let the engine play this many moves and execute them physically. Returns the last move's UCI string. |
+| `reset` | `true` | Return every piece to its initial-game home square, including pulling captured pieces back from the graveyard and restoring the spare queen to slot 0 if a promotion happened. |
+| `wipe` | `true` | Clear saved game state and the cached square positions. |
+| `clear-cache` | `true` | Clear only the square-position cache (forces re-scan from the next pointcloud capture). Use after physically nudging the board. |
+| `skill` | `<float>` | Adjust engine strength. 50 = baseline; <50 weaker (linear scale-down of think time), >50 stronger (think time grows by `(skill-50)*2`). |
+| `hover` | `"<sq>"` | Move the gripper to ~100 mm above the given square's pickup point and stay there. Does not return home. |
+| `undo` | `<int>` | Physically undo the last N moves (newest-first), restoring captured pieces from the graveyard. Errors if any of the undone moves is a promotion. |
+| `play-fen` | `"<path>"` | Wipe state, then replay every move from a PGN file at the given path. |
+| `board-snapshot` | `true` | Return `{"fen", "camera_board", "white_graveyard", "black_graveyard"}` — the engine's FEN, what the camera currently sees per square, and the FEN-letter graveyard contents. |
+| `detect-human-move` | `true` | Snapshot the camera and try to infer the human's most recent move. Returns `{"detected", "from", "to", "uci", "captured"}`. |
+
+### Examples
+
+```json
+{"go": 1}
+{"move": {"from": "e2", "to": "e4", "n": 1}}
+{"hover": "e4"}
+{"reset": true}
+{"undo": 2}
+{"play-fen": "data/sample.pgn"}
+{"board-snapshot": true}
+```
+
 ## piece finder config
 ```json
 {
