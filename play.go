@@ -545,6 +545,25 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 				case m.HasTag(chess.QueenSideCastle) && from == chess.E8:
 					rookFrom, rookTo = "a8", "d8"
 				}
+				// Defensive: the 2-diff path assumes the human only moved the
+				// king. If the camera shows the rook already at rookTo (or the
+				// source square empty), the human moved both pieces but the
+				// classifier missed the rook squares' diffs — don't try to grab
+				// air from the rook's home.
+				if rookFrom != "" {
+					if rookOrig := s.findObject(all, rookFrom); rookOrig != nil &&
+						strings.HasSuffix(rookOrig.Geometry.Label(), "-0") {
+						s.logger.Infof("castle: rook source %s is empty, human likely moved the rook already; skipping", rookFrom)
+						rookFrom = ""
+					}
+				}
+				if rookFrom != "" {
+					if rookDest := s.findObject(all, rookTo); rookDest != nil &&
+						!strings.HasSuffix(rookDest.Geometry.Label(), "-0") {
+						s.logger.Infof("castle: rook destination %s already occupied, human likely moved the rook already; skipping", rookTo)
+						rookFrom = ""
+					}
+				}
 				if rookFrom != "" {
 					s.logger.Infof("castle detected: moving rook %s -> %s", rookFrom, rookTo)
 					if err = s.movePiece(ctx, all, nil, rookFrom, rookTo, nil, nil); err != nil {
