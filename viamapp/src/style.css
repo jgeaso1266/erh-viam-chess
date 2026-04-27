@@ -415,6 +415,34 @@ a.machine-name[href]:hover { text-decoration: underline; }
   text-transform: uppercase;
 }
 
+/* Board wrap + loading overlay */
+.board-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.board-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 18, 20, 0.55);
+  transition: opacity 0.3s;
+}
+.board-loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.board-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--line-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* Chess board */
 .chess-board {
   --sq-size: clamp(40px, min(calc((100vh - 240px) / 8.4), calc((100vw - 600px) / 8.4)), 72px);

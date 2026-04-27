@@ -74,6 +74,7 @@ let lastMove: { from: string; to: string; san?: string } | null = null;
 let tapeItems: TapeEntry[] = [];
 let plyCount = 0;
 let showTapeLogs = true;
+let initialLoaded = false;
 
 // When the user makes a direct move, we apply it optimistically and the UI
 // becomes authoritative for board state. Server snapshots during this window
@@ -648,6 +649,10 @@ function applySnapshot(res: Record<string, JsonValue>) {
   renderMaterial();
   renderTopStatus();
   updateStatusFromMismatches();
+  if (!initialLoaded) {
+    initialLoaded = true;
+    document.getElementById("board-loading")?.classList.add("hidden");
+  }
 
   if (observedReset) {
     resetTape();
@@ -1217,6 +1222,7 @@ renderTopStatus();
 
 if (mockMode) {
   setStatus("mock", "warn");
+  document.getElementById("board-loading")?.classList.add("hidden");
   const machineEl = document.getElementById("machine-name");
   if (machineEl) machineEl.textContent = "mock";
 } else {
