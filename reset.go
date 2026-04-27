@@ -38,6 +38,11 @@ func (s *resetState) applyMove(from, to chess.Square) error {
 }
 
 func squareToString(s chess.Square) string {
+	// chess.NoSquare's own String() panics (slice index -1); render it as a
+	// sentinel so callers can print it in error messages without crashing.
+	if s == chess.NoSquare {
+		return "<none>"
+	}
 	// Graveyard physical slot 0 is the pawn-promotion spare queen; captured
 	// pieces occupy slots 1, 2, … so slice index i maps to physical slot i+1.
 	if s >= 85 {

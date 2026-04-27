@@ -557,7 +557,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		}
 	}
 
-	return nil, fmt.Errorf("no valid moves from: %v to %v found out of %d", from, to, len(moves))
+	return nil, fmt.Errorf("no valid moves from: %s to %s found out of %d", squareToString(from), squareToString(to), len(moves))
 }
 
 func squaresSame(a, b []chess.Square) bool {
