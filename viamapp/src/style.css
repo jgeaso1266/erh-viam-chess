@@ -580,6 +580,7 @@ a.machine-name[href]:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 .tape-evt-tag.go { color: var(--accent); }
+.tape-evt-tag.undo { color: var(--warning); }
 .tape-evt-tag.reset { color: var(--warning); }
 .tape-evt-tag.wipe { color: var(--danger); }
 .tape-evt-tag.cache { color: var(--text-3); }

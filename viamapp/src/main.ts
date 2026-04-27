@@ -11,7 +11,7 @@ interface MachineCookie {
   machineName?: string;
 }
 
-type EvtType = "go" | "reset" | "wipe" | "cache" | "refresh" | "snapshot" | "err";
+type EvtType = "go" | "undo" | "reset" | "wipe" | "cache" | "refresh" | "snapshot" | "err";
 interface MoveEntry {
   kind: "move";
   i: number;
@@ -80,6 +80,11 @@ let plyCount = 0;
 // FEN reverts the move in the UI while the camera already shows the new position.
 // Robot `go` / `wipe` / `reset` flip this back to true so the server drives state.
 let serverAuthoritative = true;
+
+// After cmdUndo runs, the next FEN diff will look like a piece moving back to
+// its source square. This flag tells applySnapshot to ignore that one inference
+// so it doesn't re-push the undone move into the tape as a phantom forward move.
+let suppressFenInferOnce = false;
 
 let selectedSq: string | null = null;
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -610,6 +615,8 @@ function applySnapshot(res: Record<string, JsonValue>) {
           // FEN jumped back to starting position — someone called wipe/reset.
           // Clear our tape so we don't display stale history alongside a fresh game.
           observedReset = true;
+        } else if (suppressFenInferOnce) {
+          suppressFenInferOnce = false;
         } else if (prevBoard) {
           const inferred = inferSingleMove(prevBoard, currentBoard);
           if (inferred && (lastMove?.from !== inferred.from || lastMove?.to !== inferred.to)) {
@@ -896,6 +903,34 @@ async function withBusy(fn: () => Promise<void>) {
   }
 }
 
+function popLastMoveFromTape() {
+  for (let i = tapeItems.length - 1; i >= 0; i--) {
+    if (tapeItems[i].kind === "move") {
+      tapeItems.splice(i, 1);
+      plyCount = Math.max(0, plyCount - 1);
+      break;
+    }
+  }
+  lastMove = null;
+}
+
+async function cmdUndo() {
+  const n = 1;
+  serverAuthoritative = true;
+  try {
+    await withBusy(async () => {
+      suppressFenInferOnce = true;
+      await doCommand({ undo: n });
+      popLastMoveFromTape();
+      pushEvent("undo", `undo ×${n}`);
+    });
+  } catch (e) {
+    suppressFenInferOnce = false;
+    const msg = e instanceof Error ? e.message : String(e);
+    pushEvent("err", `undo ${n}: ${msg}`);
+  }
+}
+
 async function cmdGo() {
   dismissInlineError("go");
   const n = parseInt((document.getElementById("go-n") as HTMLInputElement).value, 10) || 1;
@@ -1111,6 +1146,7 @@ function toggleCamera() {
 // ── Wire events ────────────────────────────────────────────────────────────
 
 document.getElementById("btn-go")!.addEventListener("click", () => void cmdGo());
+document.getElementById("btn-undo")!.addEventListener("click", () => void cmdUndo());
 document.getElementById("btn-move")!.addEventListener("click", () => void cmdDirectMoveFromInputs());
 document.getElementById("btn-refresh")!.addEventListener("click", () => void cmdMaintenance("refresh"));
 document.getElementById("btn-snapshot")!.addEventListener("click", () => void cmdMaintenance("snapshot"));
