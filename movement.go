@@ -75,6 +75,10 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			pickupZ = grabZTall
 		}
 	}
+	// Graveyard slot 0 always holds a spare queen (see promotion.go).
+	if from == fmt.Sprintf("XW%d", extraQueenGraveyardSlot) || from == fmt.Sprintf("XB%d", extraQueenGraveyardSlot) {
+		pickupZ = grabZTall
+	}
 
 	// Pick up from source square.
 	{
