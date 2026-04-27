@@ -519,6 +519,24 @@ a.machine-name[href]:hover { text-decoration: underline; }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 8px;
+}
+.tape-logs-toggle {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.1s, border-color 0.1s;
+}
+.tape-logs-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .tape {
   flex: 1;

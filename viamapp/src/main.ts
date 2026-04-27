@@ -73,6 +73,7 @@ let lastMove: { from: string; to: string; san?: string } | null = null;
 
 let tapeItems: TapeEntry[] = [];
 let plyCount = 0;
+let showTapeLogs = true;
 
 // When the user makes a direct move, we apply it optimistically and the UI
 // becomes authoritative for board state. Server snapshots during this window
@@ -529,6 +530,7 @@ function renderTape() {
   // Newest first — iterate in reverse.
   for (let k = tapeItems.length - 1; k >= 0; k--) {
     const it = tapeItems[k];
+    if (it.kind === "evt" && !showTapeLogs) continue;
     if (it.kind === "evt") {
       const row = document.createElement("div");
       row.className = "tape-evt";
@@ -1146,6 +1148,11 @@ function toggleCamera() {
 // ── Wire events ────────────────────────────────────────────────────────────
 
 document.getElementById("btn-go")!.addEventListener("click", () => void cmdGo());
+document.getElementById("tape-logs-toggle")!.addEventListener("click", () => {
+  showTapeLogs = !showTapeLogs;
+  document.getElementById("tape-logs-toggle")!.classList.toggle("active", showTapeLogs);
+  renderTape();
+});
 document.getElementById("btn-undo")!.addEventListener("click", () => void cmdUndo());
 document.getElementById("btn-move")!.addEventListener("click", () => void cmdDirectMoveFromInputs());
 document.getElementById("btn-refresh")!.addEventListener("click", () => void cmdMaintenance("refresh"));
