@@ -789,6 +789,17 @@ function setIdle(idle: boolean) {
   startAutoRefresh();
   startDetectionPoll();
   updateStatusFromMismatches();
+  // Drop the WebRTC stream while idle — it's pure bandwidth otherwise — and
+  // resume it on wake if the panel is still expanded.
+  const panel = document.getElementById("cam-panel");
+  if (panel && !panel.classList.contains("collapsed")) {
+    if (idle) {
+      void detachCamera();
+      setCamStatus("paused");
+    } else {
+      void attachCamera();
+    }
+  }
   pushEvent("go", `idle: ${idle ? "sleeping" : "waking"}`);
 }
 
