@@ -163,6 +163,15 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 			// Determine its color from the source square so we can place it on the correct side.
 			// Slot 0 in each graveyard is reserved for the spare queen used
 			// during pawn promotion; captured pieces fill slots 1, 2, …
+			//
+			// Side selection (isWhite) prefers theState's board when available,
+			// since it knows the piece type too. When theState is nil (cmd.Move
+			// is physical-only and doesn't load game state), fall back to the
+			// camera label, which encodes color as the trailing digit
+			// ("<sq>-1" = white piece, "<sq>-2" = black piece). Slot count
+			// (colorIdx) only has a meaningful answer when theState is given;
+			// without it we default to slot 1 — captures via cmd.Move alone
+			// won't accumulate, but the subsequent cmd.Go is the bookkeeper.
 			colorIdx, isWhite := 1, false
 			if theState != nil && len(from) == 2 {
 				sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
@@ -172,6 +181,18 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 					colorIdx = len(theState.whiteGraveyard) + 1
 				} else {
 					colorIdx = len(theState.blackGraveyard) + 1
+				}
+			} else if len(from) == 2 && len(data.Objects) > 0 {
+				if o := s.findObject(data, from); o != nil {
+					label := o.Geometry.Label()
+					if !strings.HasSuffix(label, "-0") && len(label) > 0 {
+						switch label[len(label)-1] {
+						case '1':
+							isWhite = true
+						case '2':
+							isWhite = false
+						}
+					}
 				}
 			}
 			center, err := s.graveyardPosition(data, colorIdx, isWhite)
