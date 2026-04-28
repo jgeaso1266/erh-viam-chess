@@ -236,7 +236,8 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 	// Replay the full move history to record what each move captured (needed for graveyard restoration).
 	type moveInfo struct {
 		capturedPiece chess.Piece
-		captureSquare string // board square where the captured piece should be restored
+		captureSquare string          // board square where the captured piece should be restored
+		movedPiece    chess.Piece     // piece sitting on m.S2() right after the move (handles promotion)
 	}
 	infos := make([]moveInfo, len(moves))
 	tempGame := chess.NewGame()
@@ -256,10 +257,13 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 			info.capturedPiece = board.Piece(m.S2())
 			info.captureSquare = m.S2().String()
 		}
-		infos[i] = info
 		if err := tempGame.Move(m, nil); err != nil {
 			return fmt.Errorf("replay move %d: %w", i, err)
 		}
+		// Capture the post-move occupant of m.S2(); for a non-promotion this is
+		// the piece that just moved, for a promotion it's the promoted piece.
+		info.movedPiece = tempGame.Position().Board().Piece(m.S2())
+		infos[i] = info
 	}
 
 	// Track graveyard state so we know which slot to retrieve each captured piece from.
@@ -284,8 +288,11 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 		m := moves[i]
 		info := infos[i]
 
-		// Move the main piece back: destination → source.
-		if err := s.movePiece(ctx, all, nil, m.S2().String(), m.S1().String(), nil, nil); err != nil {
+		// Move the main piece back: destination → source. theState/board are
+		// nil so movePiece reads occupancy from the camera, which means the
+		// usual piece-type auto-detect can't see what's at m.S2(); pass an
+		// explicit pickup-Z derived from the piece we just replayed onto S2.
+		if err := s.movePieceWithPickupZ(ctx, all, nil, m.S2().String(), m.S1().String(), nil, nil, s.pickupZForPieceType(info.movedPiece.Type())); err != nil {
 			return fmt.Errorf("undo move %s: %w", m.String(), err)
 		}
 		clearSquare(m.S2().String())
@@ -326,7 +333,9 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 				gyFrom = fmt.Sprintf("XB%d", idx)
 				curBlackGY = curBlackGY[:idx]
 			}
-			if err := s.movePiece(ctx, all, nil, gyFrom, info.captureSquare, nil, nil); err != nil {
+			// Same as above: from is a graveyard slot, so movePiece's
+			// auto-detect can't see the captured piece's type. Force it.
+			if err := s.movePieceWithPickupZ(ctx, all, nil, gyFrom, info.captureSquare, nil, nil, s.pickupZForPieceType(info.capturedPiece.Type())); err != nil {
 				return fmt.Errorf("undo restore captured piece: %w", err)
 			}
 		}

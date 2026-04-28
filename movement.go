@@ -19,6 +19,26 @@ import (
 )
 
 func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board) error {
+	return s.movePieceWithPickupZ(ctx, data, theState, from, to, m, board, 0)
+}
+
+// pickupZForPieceType returns the appropriate gripper Z height for picking up
+// a piece of the given type. Kings and queens use the tall variant, everything
+// else uses the standard height.
+func (s *viamChessChess) pickupZForPieceType(pt chess.PieceType) float64 {
+	if pt == chess.King || pt == chess.Queen {
+		return s.conf.grabZTall()
+	}
+	return s.conf.grabZ()
+}
+
+// movePieceWithPickupZ behaves like movePiece but lets the caller force the
+// pickup height. Use this when the source piece's type isn't visible to the
+// usual auto-detect path (e.g., during undo where theState/board are nil to
+// avoid stale occupancy reads, or when picking up a captured piece from a
+// graveyard slot whose contents aren't expressible as a chess.Board square).
+// pickupZOverride <= 0 means "auto-detect", matching movePiece behaviour.
+func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board, pickupZOverride float64) error {
 	s.movePieceStatus.Add(1)
 	defer s.movePieceStatus.Add(-1)
 
@@ -62,22 +82,26 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 
 	// Determine grab height based on piece type.
 	pickupZ := grabZ
-	var pieceBoard *chess.Board
-	if theState != nil {
-		pieceBoard = theState.game.Position().Board()
-	} else if board != nil {
-		pieceBoard = board
-	}
-	if pieceBoard != nil && len(from) == 2 {
-		sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
-		pt := pieceBoard.Piece(sq).Type()
-		if pt == chess.King || pt == chess.Queen {
+	if pickupZOverride > 0 {
+		pickupZ = pickupZOverride
+	} else {
+		var pieceBoard *chess.Board
+		if theState != nil {
+			pieceBoard = theState.game.Position().Board()
+		} else if board != nil {
+			pieceBoard = board
+		}
+		if pieceBoard != nil && len(from) == 2 {
+			sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
+			pt := pieceBoard.Piece(sq).Type()
+			if pt == chess.King || pt == chess.Queen {
+				pickupZ = grabZTall
+			}
+		}
+		// Graveyard slot 0 always holds a spare queen (see promotion.go).
+		if from == fmt.Sprintf("XW%d", extraQueenGraveyardSlot) || from == fmt.Sprintf("XB%d", extraQueenGraveyardSlot) {
 			pickupZ = grabZTall
 		}
-	}
-	// Graveyard slot 0 always holds a spare queen (see promotion.go).
-	if from == fmt.Sprintf("XW%d", extraQueenGraveyardSlot) || from == fmt.Sprintf("XB%d", extraQueenGraveyardSlot) {
-		pickupZ = grabZTall
 	}
 
 	// Pick up from source square.
