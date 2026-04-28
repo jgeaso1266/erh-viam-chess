@@ -19,12 +19,12 @@ type MoveCmd struct {
 }
 
 type cmdStruct struct {
-	Move          MoveCmd
-	Go            int
-	Reset         bool
-	Wipe          bool
-	Skill         float64
-	Hover         string
+	Move            MoveCmd
+	Go              int
+	Reset           bool
+	Wipe            bool
+	Skill           float64
+	Hover           string
 	ClearCache      bool `mapstructure:"clear-cache"`
 	Undo            int
 	PlayFEN         string `mapstructure:"play-fen"`

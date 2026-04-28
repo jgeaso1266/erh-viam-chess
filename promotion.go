@@ -10,23 +10,12 @@ import (
 	"go.viam.com/rdk/vision/viscapture"
 )
 
-// extraQueenGraveyardSlot is the first physical slot in each color's
-// graveyard, where the human pre-places an extra queen before the game.
-// Captured pieces fill slots 1, 2, … so slot 0 is reserved for the spare queen.
+// Slot 0 holds a spare queen pre-placed by the human; captures fill slots 1+.
 const extraQueenGraveyardSlot = 0
 
-// handlePromotionMove executes a pawn-promotion move physically. Unlike a
-// normal move it does NOT place the pawn on the promotion square first —
-// the pawn goes straight from its source rank to the graveyard and the spare
-// queen is placed on the promotion square. Must be called BEFORE
-// theState.game.Move(m) so engine state still reflects the pre-move position.
-//
-// Physical sequence (at most 3 moves; 2 for a non-capturing promotion):
-//  1. If the move is a capture, evict the captured piece from the promotion
-//     square to the opposing color's graveyard.
-//  2. Move the pawn directly from its source square into the next free slot
-//     of its own color's graveyard.
-//  3. Retrieve the spare queen from slot 0 and place it on the promotion square.
+// Must be called BEFORE theState.game.Move(m) so the engine still sees the
+// pre-move position. Promotion never places the pawn on the promotion square:
+// (optional) evict capture → pawn straight to graveyard → spare queen onto promoSq.
 func (s *viamChessChess) handlePromotionMove(ctx context.Context, data viscapture.VisCapture, theState *state, m *chess.Move) error {
 	promoSq := m.S2().String()
 	isWhite := m.S2().Rank() == chess.Rank8
@@ -42,8 +31,7 @@ func (s *viamChessChess) handlePromotionMove(ctx context.Context, data viscaptur
 			} else {
 				theState.blackGraveyard = append(theState.blackGraveyard, int(captured))
 			}
-			// Clear the snapshot label so the queen placement below doesn't
-			// try to evict a piece that's already gone.
+			// Clear the snapshot label so queen placement below doesn't re-evict.
 			for _, o := range data.Objects {
 				if strings.HasPrefix(o.Geometry.Label(), promoSq+"-") {
 					o.Geometry.SetLabel(promoSq + "-0")
@@ -74,9 +62,8 @@ func (s *viamChessChess) handlePromotionMove(ctx context.Context, data viscaptur
 		theState.blackGraveyard = append(theState.blackGraveyard, int(pawnPiece))
 	}
 
-	// Pass nil theState so the occupied-check on promoSq reads the (now-empty)
-	// camera snapshot; with theState the engine would still report a captured
-	// piece at promoSq and auto-evict a phantom.
+	// nil theState so the occupied-check reads the camera (engine would still
+	// claim a captured piece on promoSq and auto-evict a phantom).
 	if err := s.movePiece(ctx, data, nil, queenSrc, promoSq, nil, nil); err != nil {
 		return fmt.Errorf("place queen on %s: %w", promoSq, err)
 	}

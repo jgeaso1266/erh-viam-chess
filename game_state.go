@@ -14,8 +14,8 @@ import (
 
 type state struct {
 	game           *chess.Game
-	whiteGraveyard []int // captured white pieces, placed on the a-file side
-	blackGraveyard []int // captured black pieces, placed on the h-file side
+	whiteGraveyard []int // a-file side
+	blackGraveyard []int // h-file side
 }
 
 type savedState struct {
@@ -57,7 +57,7 @@ func readState(ctx context.Context, fn string) (*state, error) {
 		return &state{game: game, whiteGraveyard: ss.WhiteGraveyard, blackGraveyard: ss.BlackGraveyard}, nil
 	}
 
-	// Legacy: load from FEN only (no move history available for undo).
+	// Legacy: FEN-only state (no move history → no undo).
 	f, err := chess.FEN(ss.FEN)
 	if err != nil {
 		return nil, fmt.Errorf("invalid fen from (%s) (%s) %w", fn, data, err)

@@ -22,9 +22,6 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 	return s.movePieceWithPickupZ(ctx, data, theState, from, to, m, board, 0)
 }
 
-// pickupZForPieceType returns the appropriate gripper Z height for picking up
-// a piece of the given type. Kings and queens use the tall variant, everything
-// else uses the standard height.
 func (s *viamChessChess) pickupZForPieceType(pt chess.PieceType) float64 {
 	if pt == chess.King || pt == chess.Queen {
 		return s.conf.grabZTall()
@@ -32,12 +29,9 @@ func (s *viamChessChess) pickupZForPieceType(pt chess.PieceType) float64 {
 	return s.conf.grabZ()
 }
 
-// movePieceWithPickupZ behaves like movePiece but lets the caller force the
-// pickup height. Use this when the source piece's type isn't visible to the
-// usual auto-detect path (e.g., during undo where theState/board are nil to
-// avoid stale occupancy reads, or when picking up a captured piece from a
-// graveyard slot whose contents aren't expressible as a chess.Board square).
-// pickupZOverride <= 0 means "auto-detect", matching movePiece behaviour.
+// pickupZOverride <= 0 means auto-detect from theState/board (matches movePiece).
+// Pass a positive value when the source isn't expressible as a chess.Board square
+// (e.g., a graveyard slot during undo).
 func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board, pickupZOverride float64) error {
 	s.movePieceStatus.Add(1)
 	defer s.movePieceStatus.Add(-1)
@@ -46,7 +40,7 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 	defer span.End()
 
 	s.logger.Infof("movePiece called: %s -> %s", from, to)
-	if to != "-" && to[0] != 'X' { // check where we're going
+	if to != "-" && to[0] != 'X' {
 		occupied := false
 		var capturedPiece chess.Piece
 		if theState != nil {
@@ -80,7 +74,6 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 	grabZ := s.conf.grabZ()
 	grabZTall := s.conf.grabZTall()
 
-	// Determine grab height based on piece type.
 	pickupZ := grabZ
 	if pickupZOverride > 0 {
 		pickupZ = pickupZOverride
@@ -98,13 +91,12 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 				pickupZ = grabZTall
 			}
 		}
-		// Graveyard slot 0 always holds a spare queen (see promotion.go).
+		// extraQueenGraveyardSlot always holds a queen (see promotion.go).
 		if from == fmt.Sprintf("XW%d", extraQueenGraveyardSlot) || from == fmt.Sprintf("XB%d", extraQueenGraveyardSlot) {
 			pickupZ = grabZTall
 		}
 	}
 
-	// Pick up from source square.
 	{
 		xy, err := s.getSquareXY(from, data)
 		if err != nil {
@@ -155,23 +147,13 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 		}
 	}
 
-	// Place at destination square.
 	{
 		var destXY r3.Vector
 		if to == "-" {
-			// Placing a captured piece into the graveyard.
-			// Determine its color from the source square so we can place it on the correct side.
-			// Slot 0 in each graveyard is reserved for the spare queen used
-			// during pawn promotion; captured pieces fill slots 1, 2, …
-			//
-			// Side selection (isWhite) prefers theState's board when available,
-			// since it knows the piece type too. When theState is nil (cmd.Move
-			// is physical-only and doesn't load game state), fall back to the
-			// camera label, which encodes color as the trailing digit
-			// ("<sq>-1" = white piece, "<sq>-2" = black piece). Slot count
-			// (colorIdx) only has a meaningful answer when theState is given;
-			// without it we default to slot 1 — captures via cmd.Move alone
-			// won't accumulate, but the subsequent cmd.Go is the bookkeeper.
+			// Slot 0 is reserved for the promotion spare queen; captures use 1+.
+			// Without theState we can read color from the camera label
+			// ("<sq>-1" = white, "<sq>-2" = black) but not the slot count, so we
+			// default to slot 1 — cmd.Go is the bookkeeper for accumulation.
 			colorIdx, isWhite := 1, false
 			if theState != nil && len(from) == 2 {
 				sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
@@ -201,7 +183,6 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 			}
 			destXY = r3.Vector{X: center.X, Y: center.Y}
 		} else if len(to) > 0 && to[0] == 'X' {
-			// Graveyard retrieval (e.g. during reset): encoded as "XW{n}" or "XB{n}".
 			center, err := s.getCenterFor(data, to, theState)
 			if err != nil {
 				return err
