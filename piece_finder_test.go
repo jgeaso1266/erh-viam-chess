@@ -15,6 +15,28 @@ import (
 	"github.com/erh/vmodutils/touch"
 )
 
+func TestClusterByX(t *testing.T) {
+	// Empty input.
+	test.That(t, len(clusterByX(nil, 10)), test.ShouldEqual, 0)
+
+	// Single point.
+	got := clusterByX([]int{42}, 10)
+	test.That(t, len(got), test.ShouldEqual, 1)
+	test.That(t, got[0], test.ShouldResemble, []int{0})
+
+	// Three clearly separated clusters: gaps 75 and 115 both exceed threshold 40.
+	got = clusterByX([]int{0, 5, 80, 85, 200}, 40)
+	test.That(t, len(got), test.ShouldEqual, 3)
+	test.That(t, got[0], test.ShouldResemble, []int{0, 1})
+	test.That(t, got[1], test.ShouldResemble, []int{2, 3})
+	test.That(t, got[2], test.ShouldResemble, []int{4})
+
+	// Gap exactly equal to threshold stays merged ("strictly greater" splits).
+	got = clusterByX([]int{0, 40, 80}, 40)
+	test.That(t, len(got), test.ShouldEqual, 1)
+	test.That(t, got[0], test.ShouldResemble, []int{0, 1, 2})
+}
+
 func TestScale(t *testing.T) {
 	test.That(t, scale(0, 10, .5), test.ShouldEqual, 5)
 	test.That(t, scale(5, 15, .5), test.ShouldEqual, 10)
@@ -66,7 +88,7 @@ func testBoardPiece(t *testing.T, boardName string) {
 	pc, err := pointcloud.NewFromFile(pcdFile, "")
 	test.That(t, err, test.ShouldBeNil)
 
-	squares, err := findBoardAndPieces(context.Background(), input, pc, touch.RealSensePropertiesD435At1280by720, logger, defaultClassifyConfig())
+	squares, _, err := findBoardAndPieces(context.Background(), input, pc, touch.RealSensePropertiesD435At1280by720, logger, defaultClassifyConfig())
 	test.That(t, err, test.ShouldBeNil)
 
 	// Create debug image with square labels
@@ -122,7 +144,7 @@ func TestBoard13E2Pointcloud(t *testing.T) {
 	pc, err := pointcloud.NewFromFile("data/board13.pcd", "")
 	test.That(t, err, test.ShouldBeNil)
 
-	squares, err := findBoardAndPieces(context.Background(), input, pc, touch.RealSensePropertiesD435At1280by720, logger, defaultClassifyConfig())
+	squares, _, err := findBoardAndPieces(context.Background(), input, pc, touch.RealSensePropertiesD435At1280by720, logger, defaultClassifyConfig())
 	test.That(t, err, test.ShouldBeNil)
 
 	// Find the e2 square

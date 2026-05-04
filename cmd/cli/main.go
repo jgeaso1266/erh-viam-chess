@@ -154,6 +154,15 @@ func realMain() error {
 		}
 		logger.Infof("res: %v", res)
 		return nil
+	case "graveyard-probe":
+		res, err := thing.DoCommand(ctx, map[string]interface{}{
+			"graveyard-probe": true,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Infof("res: %v", res)
+		return nil
 	case "undo":
 		res, err := thing.DoCommand(ctx, map[string]interface{}{
 			"undo": *n,

@@ -79,7 +79,7 @@ All commands are sent via `DoCommand` on the chess generic service. Pass exactly
 | `hover` | `"<sq>"` | Move the gripper to ~100 mm above the given square's pickup point and stay there. Does not return home. |
 | `undo` | `<int>` | Physically undo the last N moves (newest-first), restoring captured pieces from the graveyard. Errors if any of the undone moves is a promotion. |
 | `play-fen` | `"<path>"` | Wipe state, then replay every move from a PGN file at the given path. |
-| `board-snapshot` | `true` | Return `{"fen", "camera_board", "white_graveyard", "black_graveyard"}` — the engine's FEN, what the camera currently sees per square, and the FEN-letter graveyard contents. |
+| `board-snapshot` | `true` | Return `{"fen", "camera_board", "camera_white_graveyard", "camera_black_graveyard", "white_graveyard", "black_graveyard"}` — the engine's FEN, what the camera sees per board square (`camera_board`) and per detected graveyard cluster on each side (`camera_*_graveyard`, keyed by 0-based cluster index sorted by pixel Y), plus the FEN-letter graveyard contents from game state. |
 | `detect-human-move` | `true` | Snapshot the camera and try to infer the human's most recent move. Returns `{"detected", "from", "to", "uci", "captured"}`. |
 
 ### Examples
@@ -95,8 +95,20 @@ All commands are sent via `DoCommand` on the chess generic service. Pass exactly
 ```
 
 ## piece finder config
+
+| field | required | default | description |
+| --- | --- | --- | --- |
+| `input` | yes | — | camera resource name (full FOV including off-board areas if you want graveyard tracking). |
+| `min-piece-size` | no | `25.0` | minimum piece height above the board surface (mm); used as the top-band threshold for color classification. |
+| `square-inset` | no | `10.0` | per-square pixel inset to avoid border lines and depth/RGB alignment artefacts. |
+| `otsu-separation-threshold` | no | `25.0` | minimum 2D Otsu mean separation to declare a piece present. |
+| `color-divergence-guard` | no | `60.0` | per-channel pc-vs-image color tolerance before the 3D verdict is rejected. |
+| `min-top-footprint-mm` | no | `5.0` | minimum 2D extent of top-band points required to trust the 3D verdict. |
+| `graveyard-rows-before-board` | no | `4.0` | width (in board-square widths) of the off-board zone scanned on the h-file (black-graveyard) side. Increase if your captured pieces sit further out than ~4 squares. |
+| `graveyard-rows-after-board` | no | `4.0` | width (in board-square widths) of the off-board zone scanned on the a-file (white-graveyard) side. |
+
 ```json
 {
-    "input": "<cropped-camera>"
+    "input": "<camera>"
 }
 ```

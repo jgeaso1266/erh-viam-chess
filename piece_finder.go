@@ -84,11 +84,29 @@ func init() {
 type PieceFinderConfig struct {
 	Input string // this is the cropped camera for the board, TODO: what orientation???
 
-	MinPieceSize            float64 `json:"min-piece-size"`             // default 25.0 mm
-	SquareInset             float64 `json:"square-inset"`               // default 10.0 px
-	OtsuSeparationThreshold float64 `json:"otsu-separation-threshold"`  // default 25.0
-	ColorDivergenceGuard    float64 `json:"color-divergence-guard"`     // default 60.0
-	MinTopFootprintMM       float64 `json:"min-top-footprint-mm"`       // default 5.0 mm
+	MinPieceSize            float64 `json:"min-piece-size"`            // default 25.0 mm
+	SquareInset             float64 `json:"square-inset"`              // default 10.0 px
+	OtsuSeparationThreshold float64 `json:"otsu-separation-threshold"` // default 25.0
+	ColorDivergenceGuard    float64 `json:"color-divergence-guard"`    // default 60.0
+	MinTopFootprintMM       float64 `json:"min-top-footprint-mm"`      // default 5.0 mm
+
+	// GraveyardRowsBeforeBoard / GraveyardRowsAfterBoard are the widths (in
+	// board-square widths) of the off-board zones the graveyard pass scans
+	// for captured pieces. Defaults are wide enough to cover two physical
+	// rows of pieces — increase if your setup stages pieces further out.
+	GraveyardRowsBeforeBoard float64 `json:"graveyard-rows-before-board"` // default 4.0 (h-file side)
+	GraveyardRowsAfterBoard  float64 `json:"graveyard-rows-after-board"`  // default 4.0 (a-file side)
+
+	// GraveyardClusterGapDivisor controls how close two pieces can be along
+	// the rank axis before gap-walk clustering merges them. The pixel gap
+	// threshold = (board pixel height) / divisor, so larger = tighter
+	// separation. Default 32 (~¼ board-square) handles tightly-packed pieces;
+	// drop to 16 (~½ square) if you over-segment a single piece into two.
+	GraveyardClusterGapDivisor int `json:"graveyard-cluster-gap-divisor"` // default 32
+
+	// GraveyardMinClusterPoints drops clusters with fewer top-band points
+	// than this — set higher to suppress noise, lower to retain small pieces.
+	GraveyardMinClusterPoints int `json:"graveyard-min-cluster-points"` // default 15
 }
 
 func (cfg *PieceFinderConfig) Validate(path string) ([]string, []string, error) {
@@ -231,11 +249,11 @@ func computeSquareBounds(corners []image.Point, col, row int, squareInset float6
 	return bounds
 }
 
-func findBoardAndPieces(ctx context.Context, srcImg image.Image, pc pointcloud.PointCloud, props camera.Properties, logger logging.Logger, cc classifyConfig) ([]squareInfo, error) {
+func findBoardAndPieces(ctx context.Context, srcImg image.Image, pc pointcloud.PointCloud, props camera.Properties, logger logging.Logger, cc classifyConfig) ([]squareInfo, []image.Point, error) {
 
 	corners, err := findBoard(srcImg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	logger.Debugf("corners: %v", corners)
@@ -286,7 +304,7 @@ func findBoardAndPieces(ctx context.Context, srcImg image.Image, pc pointcloud.P
 	})
 	span.End()
 	if outerErr != nil {
-		return nil, outerErr
+		return nil, nil, outerErr
 	}
 
 	// Phase 3: estimate piece color for each square. The 3D classifier is tried
@@ -304,7 +322,7 @@ func findBoardAndPieces(ctx context.Context, srcImg image.Image, pc pointcloud.P
 	}
 	span.End()
 
-	return squares, nil
+	return squares, corners, nil
 }
 
 type colorDiag3D struct {
@@ -961,7 +979,7 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 	}
 
 	_, span2 = trace.StartSpan(ctx, "PieceFinder::CaptureAllFromCamera::findBoardAndPieces")
-	squares, err := findBoardAndPieces(ctx, ret.Image, pc, bc.props, bc.logger, bc.conf.toClassifyConfig())
+	squares, corners, err := findBoardAndPieces(ctx, ret.Image, pc, bc.props, bc.logger, bc.conf.toClassifyConfig())
 	span2.End()
 	if err != nil {
 		if extra != nil && extra["debug"] == true {
@@ -1051,6 +1069,25 @@ func (bc *PieceFinder) CaptureAllFromCamera(ctx context.Context, cameraName stri
 		return ret, err
 	}
 	span2.End()
+
+	_, span2 = trace.StartSpan(ctx, "PieceFinder::CaptureAllFromCamera::findGraveyardClusters")
+	clusters, gErr := bc.findGraveyardClusters(ctx, pc, corners)
+	span2.End()
+	if gErr != nil {
+		// Non-fatal: graveyard tracking is best-effort. Log and return board-only output.
+		bc.logger.Warnf("graveyard detection failed: %v", gErr)
+	} else {
+		for _, c := range clusters {
+			o, oErr := c.buildObject(ctx, bc)
+			if oErr != nil {
+				bc.logger.Warnf("graveyard cluster %s build failed: %v", c.labelFor(), oErr)
+				continue
+			}
+			ret.Objects = append(ret.Objects, o)
+			ret.Detections = append(ret.Detections,
+				objectdetection.NewDetectionWithoutImgBounds(c.pixelBounds, 1, c.labelFor()))
+		}
+	}
 
 	return ret, nil
 }

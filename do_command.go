@@ -30,6 +30,7 @@ type cmdStruct struct {
 	PlayFEN         string `mapstructure:"play-fen"`
 	BoardSnapshot   bool   `mapstructure:"board-snapshot"`
 	DetectHumanMove bool   `mapstructure:"detect-human-move"`
+	GraveyardProbe  bool   `mapstructure:"graveyard-probe"`
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -57,6 +58,16 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	if cmd.Skill > 0 {
 		s.skillAdjust = cmd.Skill
 		return nil, nil
+	}
+	if cmd.GraveyardProbe {
+		extra := map[string]interface{}{"graveyard-probe": true}
+		_, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, extra)
+		if err != nil {
+			return nil, err
+		}
+		// runGraveyardProbe writes the summary into extra.
+		delete(extra, "graveyard-probe")
+		return extra, nil
 	}
 	if cmd.DetectHumanMove {
 		all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
@@ -90,10 +101,22 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			return nil, err
 		}
 		cameraBoard := map[string]interface{}{}
+		cameraWG := map[string]interface{}{}
+		cameraBG := map[string]interface{}{}
 		for _, o := range all.Objects {
 			label := o.Geometry.Label()
-			if idx := strings.LastIndex(label, "-"); idx != -1 {
-				cameraBoard[label[:idx]] = label[idx+1:]
+			idx := strings.LastIndex(label, "-")
+			if idx == -1 {
+				continue
+			}
+			key, val := label[:idx], label[idx+1:]
+			switch {
+			case strings.HasPrefix(key, "GW"):
+				cameraWG[strings.TrimPrefix(key, "GW")] = val
+			case strings.HasPrefix(key, "GB"):
+				cameraBG[strings.TrimPrefix(key, "GB")] = val
+			default:
+				cameraBoard[key] = val
 			}
 		}
 		whiteGY := make([]interface{}, 0, len(theState.whiteGraveyard))
@@ -109,10 +132,12 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			}
 		}
 		return map[string]interface{}{
-			"fen":             theState.game.FEN(),
-			"camera_board":    cameraBoard,
-			"white_graveyard": whiteGY,
-			"black_graveyard": blackGY,
+			"fen":                    theState.game.FEN(),
+			"camera_board":           cameraBoard,
+			"camera_white_graveyard": cameraWG,
+			"camera_black_graveyard": cameraBG,
+			"white_graveyard":        whiteGY,
+			"black_graveyard":        blackGY,
 		}, nil
 	}
 
