@@ -615,8 +615,12 @@ function applySnapshot(res: Record<string, JsonValue>) {
         }
       }
     }
+    const prevGraveyardTotal = whiteGraveyard.length + blackGraveyard.length;
     if (Array.isArray(res.white_graveyard)) whiteGraveyard = res.white_graveyard as string[];
     if (Array.isArray(res.black_graveyard)) blackGraveyard = res.black_graveyard as string[];
+    if (initialLoaded && prevGraveyardTotal === 0 && whiteGraveyard.length + blackGraveyard.length > 0) {
+      companion.onFirstCapture();
+    }
   }
   if (typeof res.auto === "boolean" && res.auto !== autoMode) {
     autoMode = res.auto;
@@ -1202,6 +1206,9 @@ if (mockMode) {
   } else if (companionScenario === "first-move") {
     companion.onInit(0, false, 0, "");
     setTimeout(() => companion.onMove(1), 100);
+  } else if (companionScenario === "first-capture") {
+    companion.onInit(plyCount, autoMode, 0, "");
+    companion.onFirstCapture();
   } else {
     companion.onInit(plyCount, autoMode, 0, "");
   }

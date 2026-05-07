@@ -4,7 +4,7 @@
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type GameOutcome = "white-won" | "black-won" | "draw" | "";
-type Scenario = "welcome" | "first-move" | "bad-state" | "won" | "lost" | "draw" | "long-pause";
+type Scenario = "welcome" | "first-move" | "first-capture" | "bad-state" | "won" | "lost" | "draw" | "long-pause";
 type Mood = "welcome" | "positive" | "neutral" | "sad" | "warn" | "idle";
 
 interface CopyItem {
@@ -40,6 +40,26 @@ const COPY: Record<Scenario, CopyItem[]> = {
     { eyebrow: "Nice", title: "You\u2019re in.", body: "Watch the TAPE on the right \u2014 that\u2019s the running record." },
     { eyebrow: "Game on", title: "And we\u2019re off.", body: "Every move shows up on the TAPE. The arm\u2019s thinking." },
     { eyebrow: "Opening move", title: "A bold start.", body: "The TAPE on the right tracks every move from here." },
+  ],
+  "first-capture": [
+    {
+      eyebrow: "Nice capture",
+      title: "Place it in the corner.",
+      bullets: [
+        "Set captured black pieces outside the board near h1.",
+        "Captured white pieces go near a8.",
+        "Extra promotion queens live there too \u2014 the arm knows to find them.",
+      ],
+    },
+    {
+      eyebrow: "Got one",
+      title: "Tuck it in the corner.",
+      bullets: [
+        "Captured black pieces go near h1, outside the board.",
+        "Captured white pieces go near a8.",
+        "Spare queens for promotion live in those corners too.",
+      ],
+    },
   ],
   "bad-state": [
     {
@@ -85,6 +105,7 @@ const COPY: Record<Scenario, CopyItem[]> = {
 const MOOD: Record<Scenario, Mood> = {
   welcome: "welcome",
   "first-move": "positive",
+  "first-capture": "neutral",
   "bad-state": "warn",
   won: "positive",
   lost: "sad",
@@ -95,6 +116,7 @@ const MOOD: Record<Scenario, Mood> = {
 const BLOCKING: Record<Scenario, boolean> = {
   welcome: true,
   "first-move": false,
+  "first-capture": true,
   "bad-state": true,
   won: true,
   lost: true,
@@ -134,6 +156,8 @@ let welcomeReviveTimer: ReturnType<typeof setTimeout> | null = null;
 
 let firstMoveBubbleDone = false;
 let firstMoveAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
+let firstCaptureDone = false;
 
 let gameEndScenario: "won" | "lost" | "draw" | null = null;
 let gameEndDismissed = false;
@@ -296,6 +320,7 @@ export function onReset(): void {
   welcomeAutoOn = false;
   if (welcomeReviveTimer) { clearTimeout(welcomeReviveTimer); welcomeReviveTimer = null; }
   firstMoveBubbleDone = false;
+  firstCaptureDone = false;
   longPauseRateLimited = false;
   clearLongPauseTimer();
   extPlyCount = 0;
@@ -342,6 +367,13 @@ export function onAutoToggle(enabled: boolean): void {
       if (enabled) msg.style.animation = "cp-fade-in 220ms ease-out";
     }
   }
+}
+
+export function onFirstCapture(): void {
+  if (firstCaptureDone || extOutcome) return;
+  firstCaptureDone = true;
+  setActiveScenario("first-capture");
+  render();
 }
 
 // ── State helpers ──────────────────────────────────────────────────────────
@@ -479,6 +511,14 @@ function injectStyles(): void {
   0%   { transform: translateY(8px)  rotate(-4deg); opacity: 0.2; }
   50%  {                                            opacity: 0.8; }
   100% { transform: translateY(-12px) rotate(8deg); opacity: 0; }
+}
+@keyframes cp-slot-pulse {
+  0%, 100% { opacity: 0.7; box-shadow: 0 0 10px rgba(127,209,168,0.3) inset; }
+  50%      { opacity: 1;   box-shadow: 0 0 20px rgba(127,209,168,0.65) inset; }
+}
+@keyframes cp-cell-float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-3px); }
 }
 #companion-root { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
 #companion-root * { box-sizing: border-box; }
@@ -707,15 +747,146 @@ function dioramaPause(size: number, color: string): HTMLElement {
   return wrap;
 }
 
+function dioramaFirstCapture(size: number): HTMLElement {
+  const accent = "var(--accent)";
+  const boardW = size * 0.72;
+  const boardH = size * 0.62;
+  const cell = boardW / 8;
+  const boardLeft = (size - boardW) / 2;
+  const boardTop  = (size - boardH) / 2;
+
+  const wrap = h("div", { position: "relative", width: `${size}px`, height: `${size}px` });
+
+  // Halo
+  wrap.appendChild(h("div", {
+    position: "absolute", top: "50%", left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: `${size * 0.82}px`, height: `${size * 0.82}px`, borderRadius: "50%",
+    background: "radial-gradient(closest-side, rgba(127,209,168,0.22) 0%, transparent 75%)",
+    filter: "blur(2px)",
+  }));
+
+  // Board plate (overflow visible so graveyard columns extend outside)
+  const plate = h("div", {
+    position: "absolute",
+    left: `${boardLeft}px`, top: `${boardTop}px`,
+    width: `${boardW}px`, height: `${boardH}px`,
+    overflow: "visible",
+    background: "var(--bg-2)",
+    border: "1px solid var(--line-2)",
+    boxShadow: "0 24px 48px rgba(0,0,0,0.55)",
+  });
+
+  // 8×8 checkerboard
+  const grid = h("div", {
+    position: "absolute", inset: "0",
+    display: "grid",
+    gridTemplateColumns: "repeat(8, 1fr)",
+    gridTemplateRows: "repeat(8, 1fr)",
+  });
+  for (let i = 0; i < 64; i++) {
+    const r = Math.floor(i / 8), c = i % 8;
+    grid.appendChild(h("div", { background: (r + c) % 2 === 1 ? "rgba(255,255,255,0.05)" : "transparent" }));
+  }
+  plate.appendChild(grid);
+
+  // h1 glow slot — right of h-file, bottom row
+  plate.appendChild(h("div", {
+    position: "absolute", right: `${-cell}px`, bottom: "0",
+    width: `${cell}px`, height: `${cell}px`, boxSizing: "border-box",
+    background: "radial-gradient(closest-side, rgba(127,209,168,0.55), rgba(127,209,168,0.18))",
+    border: `1px solid ${accent}`,
+    animation: "cp-slot-pulse 3s ease-in-out infinite",
+  }));
+
+  // a8 glow slot — left of a-file, top row
+  plate.appendChild(h("div", {
+    position: "absolute", left: `${-cell}px`, top: "0",
+    width: `${cell}px`, height: `${cell}px`, boxSizing: "border-box",
+    background: "radial-gradient(closest-side, rgba(127,209,168,0.4), rgba(127,209,168,0.12))",
+    border: `1px solid ${accent}`,
+    animation: "cp-slot-pulse 3s ease-in-out 1.2s infinite",
+  }));
+
+  // Coordinate labels on board
+  plate.appendChild(h("span", {
+    position: "absolute", right: "4px", bottom: "2px",
+    fontSize: `${cell * 0.32}px`, color: "var(--text-3)", fontFamily: "var(--font-mono)",
+    fontWeight: "700", opacity: "0.7",
+  }, "h1"));
+  plate.appendChild(h("span", {
+    position: "absolute", left: "4px", top: "2px",
+    fontSize: `${cell * 0.32}px`, color: "var(--text-3)", fontFamily: "var(--font-mono)",
+    fontWeight: "700", opacity: "0.6",
+  }, "a8"));
+
+  // WHITE stash — column LEFT of a-file, going DOWN (WQ at slot 0 = a8 row)
+  [
+    { g: "\u2655", slot: 0, c: accent,          glow: true,  s: 0.95 },
+    { g: "\u2659", slot: 1, c: "var(--text-2)", glow: false, s: 0.78 },
+    { g: "\u2657", slot: 2, c: "var(--text-2)", glow: false, s: 0.88 },
+    { g: "\u2658", slot: 3, c: "var(--text-2)", glow: false, s: 0.90 },
+    { g: "\u2656", slot: 4, c: "var(--text-2)", glow: false, s: 0.92 },
+  ].forEach(p => {
+    plate.appendChild(h("span", {
+      position: "absolute",
+      left: `${-cell}px`, top: `${cell * p.slot}px`,
+      width: `${cell}px`, height: `${cell}px`,
+      display: "grid", placeItems: "center",
+      fontSize: `${cell * p.s}px`, color: p.c, lineHeight: "1",
+      textShadow: p.glow
+        ? "0 4px 12px rgba(127,209,168,0.7), 0 0 10px rgba(127,209,168,0.6)"
+        : "0 4px 10px rgba(0,0,0,0.6)",
+      animation: p.glow ? "cp-cell-float 2.4s ease-in-out infinite" : "",
+    }, p.g));
+  });
+
+  // BLACK stash — column RIGHT of h-file, going UP (BQ at slot 0 = h1 row)
+  [
+    { g: "\u265b", slot: 0, c: accent,          glow: true,  s: 0.95 },
+    { g: "\u265f", slot: 1, c: "var(--text-1)", glow: false, s: 0.78 },
+    { g: "\u265d", slot: 2, c: "var(--text-1)", glow: false, s: 0.88 },
+    { g: "\u265e", slot: 3, c: "var(--text-1)", glow: false, s: 0.90 },
+    { g: "\u265c", slot: 4, c: "var(--text-1)", glow: false, s: 0.92 },
+  ].forEach(p => {
+    plate.appendChild(h("span", {
+      position: "absolute",
+      right: `${-cell}px`, bottom: `${cell * p.slot}px`,
+      width: `${cell}px`, height: `${cell}px`,
+      display: "grid", placeItems: "center",
+      fontSize: `${cell * p.s}px`, color: p.c, lineHeight: "1",
+      textShadow: p.glow
+        ? "0 4px 12px rgba(127,209,168,0.7), 0 0 10px rgba(127,209,168,0.6)"
+        : "0 4px 10px rgba(0,0,0,0.6)",
+      animation: p.glow ? "cp-cell-float 2.4s ease-in-out 1.2s infinite" : "",
+    }, p.g));
+  });
+
+  wrap.appendChild(plate);
+
+  // Corner chip
+  wrap.appendChild(h("div", {
+    position: "absolute", top: "12px", right: "12px",
+    padding: "4px 10px",
+    background: "rgba(127,209,168,0.14)",
+    border: `1px solid ${accent}`,
+    color: accent, fontFamily: "var(--font-mono)", fontSize: "9px",
+    letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: "600",
+  }, "\u25cf first capture"));
+
+  return wrap;
+}
+
 function getDiorama(scenario: Scenario, size: number, color: string): HTMLElement | null {
   switch (scenario) {
-    case "welcome":     return dioramaWelcome(size, color);
-    case "bad-state":   return dioramaBadState(size, color);
-    case "won":         return dioramaWon(size, color);
-    case "lost":        return dioramaLost(size, color);
-    case "draw":        return dioramaDraw(size, color);
-    case "long-pause":  return dioramaPause(size, color);
-    default:            return null;
+    case "welcome":       return dioramaWelcome(size, color);
+    case "first-capture": return dioramaFirstCapture(size);
+    case "bad-state":     return dioramaBadState(size, color);
+    case "won":           return dioramaWon(size, color);
+    case "lost":          return dioramaLost(size, color);
+    case "draw":          return dioramaDraw(size, color);
+    case "long-pause":    return dioramaPause(size, color);
+    default:              return null;
   }
 }
 
@@ -838,6 +1009,9 @@ function buildActions(scenario: Scenario, onDismissOrMinimize: () => void): HTML
   };
 
   switch (scenario) {
+    case "first-capture":
+      addBtn("Got it", true, onDismissOrMinimize);
+      break;
     case "bad-state":
       addBtn("Wipe state", true, () => { cbs?.onWipe(); onDismissOrMinimize(); });
       addBtn("Not now", false, onDismissOrMinimize);
