@@ -98,6 +98,7 @@ type viamChessChess struct {
 		whiteGraveyard []interface{}
 		blackGraveyard []interface{}
 		capturedAt     time.Time
+		gameEvents     GameEventsResult
 	}
 }
 

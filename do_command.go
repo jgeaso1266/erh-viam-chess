@@ -39,6 +39,32 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	ctx, span := trace.StartSpan(ctx, "chess::DoCommand")
 	defer span.End()
 
+	// board-snapshot fast path: serve from cache without blocking on doCommandLock.
+	// The board loop holds doCommandLock during makeAMove, so without this early
+	// return polling clients would see stale state for the entire arm movement.
+	if bs, _ := cmdMap["board-snapshot"].(bool); bs {
+		s.boardCache.mu.RLock()
+		if s.boardCache.ready {
+			result := map[string]interface{}{
+				"fen":             s.boardCache.fen,
+				"camera_board":    s.boardCache.cameraBoard,
+				"white_graveyard": s.boardCache.whiteGraveyard,
+				"black_graveyard": s.boardCache.blackGraveyard,
+				"auto":            s.autoEnabled.Load(),
+				"captured_at_ms":  s.boardCache.capturedAt.UnixMilli(),
+				"event":           s.boardCache.gameEvents.Event,
+				"outcome":         s.boardCache.gameEvents.Outcome,
+				"method":          s.boardCache.gameEvents.Method,
+				"turn":            s.boardCache.gameEvents.Turn,
+				"in_check":        s.boardCache.gameEvents.InCheck,
+				"is_over":         s.boardCache.gameEvents.IsOver,
+			}
+			s.boardCache.mu.RUnlock()
+			return result, nil
+		}
+		s.boardCache.mu.RUnlock()
+	}
+
 	s.doCommandLock.Lock()
 	defer s.doCommandLock.Unlock()
 
@@ -82,6 +108,12 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 				"black_graveyard": s.boardCache.blackGraveyard,
 				"auto":            s.autoEnabled.Load(),
 				"captured_at_ms":  s.boardCache.capturedAt.UnixMilli(),
+				"event":           s.boardCache.gameEvents.Event,
+				"outcome":         s.boardCache.gameEvents.Outcome,
+				"method":          s.boardCache.gameEvents.Method,
+				"turn":            s.boardCache.gameEvents.Turn,
+				"in_check":        s.boardCache.gameEvents.InCheck,
+				"is_over":         s.boardCache.gameEvents.IsOver,
 			}
 			s.boardCache.mu.RUnlock()
 			return result, nil
@@ -92,7 +124,7 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		if err != nil {
 			return nil, err
 		}
-		fen, cameraBoard, whiteGY, blackGY, err := s.buildSnapshotData(ctx, all)
+		fen, cameraBoard, whiteGY, blackGY, events, err := s.buildSnapshotData(ctx, all)
 		if err != nil {
 			return nil, err
 		}
@@ -104,6 +136,12 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			"black_graveyard": blackGY,
 			"auto":            s.autoEnabled.Load(),
 			"captured_at_ms":  time.Now().UnixMilli(),
+			"event":           events.Event,
+			"outcome":         events.Outcome,
+			"method":          events.Method,
+			"turn":            events.Turn,
+			"in_check":        events.InCheck,
+			"is_over":         events.IsOver,
 		}, nil
 	}
 
@@ -232,6 +270,7 @@ func (s *viamChessChess) buildSnapshotData(ctx context.Context, all viscapture.V
 	cameraBoard map[string]interface{},
 	whiteGY []interface{},
 	blackGY []interface{},
+	events GameEventsResult,
 	err error,
 ) {
 	theState, err := s.getGame(ctx)
@@ -258,12 +297,13 @@ func (s *viamChessChess) buildSnapshotData(ctx context.Context, all viscapture.V
 		}
 	}
 	fen = theState.game.FEN()
+	events = gameEventsResult(theState.game)
 	return
 }
 
 // refreshBoardCache rebuilds the snapshot cache from the given camera capture.
 func (s *viamChessChess) refreshBoardCache(ctx context.Context, all viscapture.VisCapture) error {
-	fen, cb, wg, bg, err := s.buildSnapshotData(ctx, all)
+	fen, cb, wg, bg, events, err := s.buildSnapshotData(ctx, all)
 	if err != nil {
 		return err
 	}
@@ -275,6 +315,7 @@ func (s *viamChessChess) refreshBoardCache(ctx context.Context, all viscapture.V
 	s.boardCache.whiteGraveyard = wg
 	s.boardCache.blackGraveyard = bg
 	s.boardCache.capturedAt = time.Now()
+	s.boardCache.gameEvents = events
 	return nil
 }
 

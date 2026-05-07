@@ -100,6 +100,19 @@ func (s *viamChessChess) saveGame(ctx context.Context, theState *state) error {
 	return os.WriteFile(s.fenFile, b, 0666)
 }
 
+func (s *state) outcomeString() string {
+	switch s.game.Outcome() {
+	case chess.WhiteWon:
+		return "white-won"
+	case chess.BlackWon:
+		return "black-won"
+	case chess.Draw:
+		return "draw"
+	default:
+		return ""
+	}
+}
+
 func (s *viamChessChess) wipe(ctx context.Context) error {
 	err := os.Remove(s.fenFile)
 	if errors.Is(err, os.ErrNotExist) {

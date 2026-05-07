@@ -249,7 +249,7 @@ a.machine-name[href]:hover { text-decoration: underline; }
 }
 .last-from, .last-to { font-size: 13px; color: var(--text-1); font-weight: 600; }
 .last-arrow { color: var(--accent); }
-.last-san { font-size: 11px; }
+
 
 .status-cluster {
   display: flex;
@@ -733,7 +733,7 @@ a.machine-name[href]:hover { text-decoration: underline; }
 .app.kiosk .status-pill { font-size: 13px; }
 .app.kiosk .status-pill .dot { width: 9px; height: 9px; }
 .app.kiosk .last-from, .app.kiosk .last-to { font-size: 16px; }
-.app.kiosk .last-san { font-size: 13px; }
+
 
 .app.kiosk .main-stage { grid-template-columns: 264px 1fr 304px; }
 .app.kiosk .left-rail { padding: 24px 22px; gap: 26px; }

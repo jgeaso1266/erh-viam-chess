@@ -2,6 +2,8 @@ import { createRobotClient, GenericServiceClient, StreamClient } from "@viamrobo
 import { Struct, type JsonValue } from "@viamrobotics/sdk";
 import type { RobotClient } from "@viamrobotics/sdk";
 import Cookies from "js-cookie";
+import * as companion from "./companion";
+import type { GameOutcome } from "./companion";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -109,6 +111,13 @@ let lastActivityAt = Date.now();
 
 function emptyBoard(): (string | null)[][] {
   return Array.from({ length: 8 }, () => Array(8).fill(null));
+}
+
+function plyCountFromFEN(fen: string): number {
+  const parts = fen.split(" ");
+  const turn = parts[1] ?? "w";
+  const fullMove = parseInt(parts[5] ?? "1", 10) || 1;
+  return (fullMove - 1) * 2 + (turn === "b" ? 1 : 0);
 }
 
 function parseFENPlacement(fen: string): { board: (string | null)[][]; turn: "w" | "b" } {
@@ -412,7 +421,6 @@ function renderTopStatus() {
     lastMoveRule.classList.remove("hidden");
     (lastMoveEl.querySelector(".last-from") as HTMLElement).textContent = lastMove.from;
     (lastMoveEl.querySelector(".last-to") as HTMLElement).textContent = lastMove.to;
-    (lastMoveEl.querySelector(".last-san") as HTMLElement).textContent = lastMove.san ?? "";
   } else if (lastMoveEl && lastMoveRule) {
     lastMoveEl.classList.add("hidden");
     lastMoveRule.classList.add("hidden");
@@ -625,10 +633,17 @@ function applySnapshot(res: Record<string, JsonValue>) {
   renderMaterial();
   renderTopStatus();
   updateStatusFromMismatches();
-  if (!initialLoaded) {
-    initialLoaded = true;
-    document.getElementById("board-loading")?.classList.add("hidden");
-  }
+
+  // outcome from board-snapshot is now in GameEventsResult format ("white_won", "black_won",
+  // "draw", "in_progress"). Normalize to companion's hyphen format.
+  const rawOutcome = typeof res.outcome === "string" ? res.outcome : "";
+  const snapshotOutcome: GameOutcome =
+    rawOutcome === "white_won" ? "white-won" :
+    rawOutcome === "black_won" ? "black-won" :
+    rawOutcome === "draw" ? "draw" : "";
+  // FEN-derived ply count: client tape plyCount stays 0 when white+black both
+  // arrive between polls (inferSingleMove returns null for multi-ply jumps).
+  const fenPly = currentFen ? plyCountFromFEN(currentFen) : plyCount;
 
   if (observedReset) {
     resetTape();
@@ -642,6 +657,16 @@ function applySnapshot(res: Record<string, JsonValue>) {
     pushEvent("go", "inferred from fen diff");
     if (idleMode) setIdle(false);
   }
+
+  if (!initialLoaded) {
+    companion.onInit(fenPly, autoMode, mismatches.length, snapshotOutcome);
+    initialLoaded = true;
+    document.getElementById("board-loading")?.classList.add("hidden");
+  } else if (observedReset) {
+    companion.onReset();
+  } else {
+    companion.onSnapshot(fenPly, autoMode, mismatches.length, snapshotOutcome);
+  }
 }
 
 function pushMoveToTape(from: string, to: string, san: string) {
@@ -652,6 +677,7 @@ function pushMoveToTape(from: string, to: string, san: string) {
   renderTape();
   renderTopStatus();
   persistState();
+  companion.onMove(plyCount);
 }
 
 function resetTape() {
@@ -755,8 +781,20 @@ function startAutoRefresh() {
 // Server is authoritative; the client just sends a doCommand.
 
 async function setAutoModeOnServer(enabled: boolean): Promise<boolean> {
-  await doCommand({ auto: enabled });
+  // Apply optimistically before the round-trip so UI never waits on the server.
   autoMode = enabled;
+  const cb = document.getElementById("auto-mode") as HTMLInputElement | null;
+  if (cb) cb.checked = enabled;
+  companion.onAutoToggle(enabled);
+  if (chessService) {
+    // Pause snapshot polling so a stale server response can't revert the optimistic state.
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    try {
+      await doCommand({ auto: enabled });
+    } finally {
+      startAutoRefresh();
+    }
+  }
   pushEvent("go", `auto: ${enabled ? "on" : "off"}`);
   return true;
 }
@@ -923,6 +961,8 @@ async function submitMove(from: string, to: string) {
     await withBusy(async () => {
       // 1. Arm physically moves the piece (no server game-state change).
       await doCommand({ move: { from, to, n: 1 } });
+      // White piece is now on the target square — dismiss companion welcome.
+      companion.onMove(plyCount + 1);
       // 2. `go 1` sanity-checks the camera, registers the human ply on the
       //    server, then picks and plays the engine's response.
       const goRes = await doCommand({ go: 1 });
@@ -962,9 +1002,9 @@ async function cmdDirectMoveFromInputs() {
   (document.getElementById("move-to") as HTMLInputElement).value = "";
 }
 
-async function cmdMaintenance(id: "refresh" | "snapshot" | "cache" | "wipe" | "reset") {
-  if (id === "reset" && !confirm("Physically reset the board?")) return;
-  if (id === "wipe" && !confirm("Wipe game state?")) return;
+async function cmdMaintenance(id: "refresh" | "snapshot" | "cache" | "wipe" | "reset", skipConfirm = false) {
+  if (id === "reset" && !skipConfirm && !confirm("Physically reset the board?")) return;
+  if (id === "wipe" && !skipConfirm && !confirm("Wipe game state?")) return;
   try {
     await withBusy(async () => {
       if (id === "refresh") {
@@ -1112,6 +1152,13 @@ document.querySelectorAll(".inline-error-dismiss").forEach((b) => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
+companion.init({
+  onAutoEnable: async () => { await setAutoModeOnServer(true); },
+  onAutoDisable: async () => { await setAutoModeOnServer(false); },
+  onWipe: () => void cmdMaintenance("wipe", true),
+  onReset: () => void cmdMaintenance("reset", true),
+});
+
 if (new URLSearchParams(window.location.search).has("compact")) {
   document.querySelector(".app")?.classList.remove("kiosk");
 }
@@ -1136,6 +1183,27 @@ if (mockMode) {
   document.getElementById("board-loading")?.classList.add("hidden");
   const machineEl = document.getElementById("machine-name");
   if (machineEl) machineEl.textContent = "mock";
+  const companionScenario = new URLSearchParams(window.location.search).get("companion");
+  if (companionScenario === "won") {
+    companion.onInit(plyCount, autoMode, 0, "white-won");
+  } else if (companionScenario === "lost") {
+    companion.onInit(plyCount, autoMode, 0, "black-won");
+  } else if (companionScenario === "draw") {
+    companion.onInit(plyCount, autoMode, 0, "draw");
+  } else if (companionScenario === "bad-state") {
+    companion.onInit(plyCount, autoMode, 4, "");
+    companion.forceScenario("bad-state");
+  } else if (companionScenario === "long-pause") {
+    companion.onInit(plyCount, autoMode, 0, "");
+    companion.forceScenario("long-pause");
+  } else if (companionScenario === "welcome") {
+    companion.onInit(0, false, 0, "");
+  } else if (companionScenario === "first-move") {
+    companion.onInit(0, false, 0, "");
+    setTimeout(() => companion.onMove(1), 100);
+  } else {
+    companion.onInit(plyCount, autoMode, 0, "");
+  }
 } else {
   connect()
     .then(refreshState)
