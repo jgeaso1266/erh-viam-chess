@@ -13,7 +13,7 @@ func TestReset1(t *testing.T) {
 	theMainState, err := readState(ctx, "data/reset1.json")
 	test.That(t, err, test.ShouldBeNil)
 
-	theState := &resetState{theMainState.game.Position().Board(), theMainState.graveyard}
+	theState := &resetState{theMainState.game.Position().Board(), theMainState.whiteGraveyard, theMainState.blackGraveyard}
 
 	from, to, err := nextResetMove(theState)
 	test.That(t, err, test.ShouldBeNil)
@@ -27,7 +27,7 @@ func TestReset2(t *testing.T) {
 	theMainState, err := readState(ctx, "data/reset2.json")
 	test.That(t, err, test.ShouldBeNil)
 
-	theState := &resetState{theMainState.game.Position().Board(), theMainState.graveyard}
+	theState := &resetState{theMainState.game.Position().Board(), theMainState.whiteGraveyard, theMainState.blackGraveyard}
 
 	// -
 
@@ -53,18 +53,8 @@ func TestReset2(t *testing.T) {
 
 	from, to, err = nextResetMove(theState)
 	test.That(t, err, test.ShouldBeNil)
-	test.That(t, squareToString(from), test.ShouldEqual, "X0")
+	test.That(t, squareToString(from), test.ShouldEqual, "XW1")
 	test.That(t, to.String(), test.ShouldEqual, "e2")
-
-	err = theState.applyMove(from, to)
-	test.That(t, err, test.ShouldBeNil)
-
-	// -
-
-	from, to, err = nextResetMove(theState)
-	test.That(t, err, test.ShouldBeNil)
-	test.That(t, squareToString(from), test.ShouldEqual, "d4")
-	test.That(t, to.String(), test.ShouldEqual, "e7")
 
 	err = theState.applyMove(from, to)
 	test.That(t, err, test.ShouldBeNil)
@@ -75,6 +65,16 @@ func TestReset2(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 	test.That(t, squareToString(from), test.ShouldEqual, "c6")
 	test.That(t, to.String(), test.ShouldEqual, "b8")
+
+	err = theState.applyMove(from, to)
+	test.That(t, err, test.ShouldBeNil)
+
+	// -
+
+	from, to, err = nextResetMove(theState)
+	test.That(t, err, test.ShouldBeNil)
+	test.That(t, squareToString(from), test.ShouldEqual, "d4")
+	test.That(t, to.String(), test.ShouldEqual, "e7")
 
 	err = theState.applyMove(from, to)
 	test.That(t, err, test.ShouldBeNil)

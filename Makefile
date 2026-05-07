@@ -28,11 +28,14 @@ update:
 test:
 	go test ./...
 
-module.tar.gz: test meta.json $(MODULE_BINARY)
+viamapp/dist/:
+	cd viamapp && npm run build
+
+module.tar.gz: test meta.json $(MODULE_BINARY) viamapp/dist/
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif
-	tar czf $@ meta.json $(MODULE_BINARY)
+	tar czf $@ meta.json $(MODULE_BINARY) -C viamapp dist
 
 module: test module.tar.gz
 
@@ -40,3 +43,8 @@ all: test module.tar.gz
 
 setup:
 	go mod tidy
+	if ! command -v npm > /dev/null 2>&1; then \
+		curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+		apt-get install -y nodejs; \
+	fi
+	cd viamapp && npm install

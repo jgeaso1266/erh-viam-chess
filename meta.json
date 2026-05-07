@@ -1,25 +1,38 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
-  "module_id": "allisonorg:viam-chess",
+  "module_id": "viam-labs:hackathon-chess",
   "visibility": "public",
   "url": "https://github.com/jgeaso1266/erh-viam-chess",
   "description": "chess",
   "models": [
     {
       "api": "rdk:service:generic",
-      "model": "allisonorg:viam-chess:chess",
+      "model": "viam-labs:hackathon-chess:chess",
       "short_description": "Provide a short (100 characters or less) description of this model here",
       "markdown_link": "README.md#chess-config"
     },
     {
       "api": "rdk:service:vision",
-      "model": "allisonorg:viam-chess:piece-finder",
+      "model": "viam-labs:hackathon-chess:piece-finder",
       "short_description": "debugging tool mostly i think",
       "markdown_link": "README.md#piece-finder-config"
     }
 
   ],
-  "applications": null,
+  "applications": [
+    {
+      "name": "chess-control",
+      "type": "single_machine",
+      "entrypoint": "dist/index.html",
+      "logoPath": "static/logo.png",
+      "customizations": {
+        "machinePicker": {
+          "heading": "Chess Robot Control",
+          "subheading": "Select your chess robot to start playing"
+        }
+      }
+    }
+  ],
   "markdown_link": "README.md",
   "entrypoint": "bin/viam-chess",
   "first_run": "",
@@ -28,7 +41,9 @@
     "setup": "make setup",
     "path": "module.tar.gz",
     "arch": [
-      "linux/amd64"
+      "linux/amd64",
+      "linux/arm64",
+      "darwin/arm64"
     ]
   }
 }
