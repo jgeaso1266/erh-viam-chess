@@ -826,6 +826,7 @@ function setIdle(idle: boolean) {
 function recordActivity() {
   lastActivityAt = Date.now();
   if (idleMode) setIdle(false);
+  companion.onActivity();
 }
 
 function startIdleWatch() {

@@ -307,6 +307,14 @@ export function onReset(): void {
   render();
 }
 
+export function onActivity(): void {
+  if (activeScenario === "long-pause") {
+    activeScenario = null;
+    scheduleLongPause();
+    render();
+  }
+}
+
 export function forceScenario(sc: string): void {
   setActiveScenario(sc as Scenario);
   render();
