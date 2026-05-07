@@ -184,7 +184,32 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		return nil, err
 	}
 
+	s.announceMove(m.String(), theState.game.FEN(), "engine")
+
 	return m, nil
+}
+
+// announceMove dispatches a "move_made" event to the configured on_move_target
+// generic service. Fires after every engine move (cmd.Go and auto-mode both
+// land here via makeAMove). Fire-and-forget: a goroutine with its own timeout
+// so a slow or broken downstream cannot delay the chess move.
+func (s *viamChessChess) announceMove(move, fen, by string) {
+	if !s.announceEnabled.Load() || s.onMoveTarget == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		payload := map[string]interface{}{
+			"event": "move_made",
+			"move":  move,
+			"fen":   fen,
+			"by":    by,
+		}
+		if _, err := s.onMoveTarget.DoCommand(ctx, payload); err != nil {
+			s.logger.Warnf("on_move_target dispatch failed: %v", err)
+		}
+	}()
 }
 
 func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
