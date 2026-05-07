@@ -245,15 +245,14 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
 
 export function onMove(newPlyCount: number): void {
   const wasZero = extPlyCount === 0;
-  const welcomeWasUserDismissed = welcomeDismissedCount > 0;
   extPlyCount = newPlyCount;
 
   if (activeScenario === "welcome") {
     doWelcomeDismiss(true); // auto-dismiss — doesn't count as user-dismissed
   }
 
-  // First-move bubble: only if user had already manually dismissed welcome before playing
-  if (wasZero && newPlyCount > 0 && !firstMoveBubbleDone && welcomeWasUserDismissed) {
+  // First-move bubble: show on first ply regardless of whether welcome was manually dismissed
+  if (wasZero && newPlyCount > 0 && !firstMoveBubbleDone) {
     setActiveScenario("first-move");
     startFirstMoveAutoDismiss();
   }
