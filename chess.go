@@ -159,7 +159,11 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 	if conf.OnMoveTarget != "" {
 		s.onMoveTarget, err = generic.FromProvider(deps, conf.OnMoveTarget)
 		if err != nil {
-			return nil, fmt.Errorf("could not get on_move_target %q: %w", conf.OnMoveTarget, err)
+			// Optional dep — log and continue. AlwaysRebuild will re-run this
+			// constructor once the target becomes available, so announcements
+			// turn on automatically without manual intervention.
+			logger.Warnf("on_move_target %q not yet available, announcements disabled until rebuild: %v", conf.OnMoveTarget, err)
+			s.onMoveTarget = nil
 		}
 	}
 	s.announceEnabled.Store(true)

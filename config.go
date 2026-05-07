@@ -141,8 +141,14 @@ func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {
 		optionalDeps = append(optionalDeps, cfg.VideoSaver)
 	}
 
+	// OnMoveTarget is an OPTIONAL dep to avoid a circular dependency:
+	// ai-responder typically depends on chess (as context_service for FEN),
+	// so chess depending hard on ai-responder would deadlock the resource
+	// graph. Optional dep means chess builds even if ai-responder isn't
+	// ready yet; once ai-responder comes up, chess rebuilds (AlwaysRebuild)
+	// and the dep resolves.
 	if cfg.OnMoveTarget != "" {
-		deps = append(deps, "rdk:service:generic/"+cfg.OnMoveTarget)
+		optionalDeps = append(optionalDeps, "rdk:service:generic/"+cfg.OnMoveTarget)
 	}
 
 	if cfg.CaptureDir != "" {
