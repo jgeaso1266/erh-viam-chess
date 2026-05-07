@@ -615,10 +615,10 @@ function applySnapshot(res: Record<string, JsonValue>) {
         }
       }
     }
-    const prevGraveyardTotal = whiteGraveyard.length + blackGraveyard.length;
+    const prevBlackGraveyardLen = blackGraveyard.length;
     if (Array.isArray(res.white_graveyard)) whiteGraveyard = res.white_graveyard as string[];
     if (Array.isArray(res.black_graveyard)) blackGraveyard = res.black_graveyard as string[];
-    if (initialLoaded && prevGraveyardTotal === 0 && whiteGraveyard.length + blackGraveyard.length > 0) {
+    if (initialLoaded && prevBlackGraveyardLen === 0 && blackGraveyard.length > 0) {
       companion.onFirstCapture();
     }
   }
