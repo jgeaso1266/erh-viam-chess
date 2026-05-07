@@ -31,6 +31,7 @@ type cmdStruct struct {
 	BoardSnapshot bool  `mapstructure:"board-snapshot"`
 	GameEvents    bool  `mapstructure:"game-events"`
 	Auto          *bool // pointer so explicit false is distinguishable from absent
+	SetAnnounce   *bool `mapstructure:"set-announce"` // pointer so explicit false is distinguishable from absent
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -64,6 +65,11 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 	if cmd.Auto != nil {
 		s.autoEnabled.Store(*cmd.Auto)
 		return map[string]interface{}{"auto": *cmd.Auto}, nil
+	}
+	if cmd.SetAnnounce != nil {
+		s.announceEnabled.Store(*cmd.SetAnnounce)
+		s.logger.Infof("announce set to %v", *cmd.SetAnnounce)
+		return map[string]interface{}{"announce": *cmd.SetAnnounce}, nil
 	}
 	if cmd.BoardSnapshot {
 		// Fast path: read the loop-populated cache; no per-call capture.

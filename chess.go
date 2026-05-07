@@ -81,6 +81,13 @@ type viamChessChess struct {
 	// refresh always run.
 	autoEnabled atomic.Bool
 
+	// announceEnabled gates the on_move_target dispatch. Default true.
+	announceEnabled atomic.Bool
+
+	// onMoveTarget receives a "move_made" domain event after every successful
+	// engine move (whether triggered by cmd.Go or auto-mode). nil = disabled.
+	onMoveTarget resource.Resource
+
 	// boardCache holds the last camera-derived snapshot, populated by the
 	// board loop and read by board-snapshot. Guarded by mu.
 	boardCache struct {
@@ -148,6 +155,18 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 			s.videoSaver = nil
 		}
 	}
+
+	if conf.OnMoveTarget != "" {
+		s.onMoveTarget, err = generic.FromProvider(deps, conf.OnMoveTarget)
+		if err != nil {
+			// Optional dep — log and continue. AlwaysRebuild will re-run this
+			// constructor once the target becomes available, so announcements
+			// turn on automatically without manual intervention.
+			logger.Warnf("on_move_target %q not yet available, announcements disabled until rebuild: %v", conf.OnMoveTarget, err)
+			s.onMoveTarget = nil
+		}
+	}
+	s.announceEnabled.Store(true)
 
 	s.poseStart, err = toggleswitch.FromProvider(deps, conf.PoseStart)
 	if err != nil {

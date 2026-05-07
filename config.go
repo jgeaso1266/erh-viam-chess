@@ -35,6 +35,14 @@ type ChessConfig struct {
 	// Board-loop cadence in ms. 0/unset disables the loop; board-snapshot
 	// then falls back to per-call captures.
 	BoardLoopIntervalMs int `json:"board-loop-interval-ms"`
+
+	// OnMoveTarget is the name of a generic service that receives a domain
+	// event each time the engine plays a move:
+	//   {"event": "move_made", "move": "<UCI>", "fen": "<post-FEN>", "by": "engine"}
+	// Optional. Empty = no announcement. Dispatch is fire-and-forget; failures
+	// are logged and never block the move. Toggle at runtime with
+	// {"set_announce": true|false}.
+	OnMoveTarget string `json:"on_move_target,omitempty"`
 }
 
 func (cfg *ChessConfig) engine() string {
@@ -131,6 +139,16 @@ func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {
 	var optionalDeps []string
 	if cfg.VideoSaver != "" {
 		optionalDeps = append(optionalDeps, cfg.VideoSaver)
+	}
+
+	// OnMoveTarget is an OPTIONAL dep to avoid a circular dependency:
+	// ai-responder typically depends on chess (as context_service for FEN),
+	// so chess depending hard on ai-responder would deadlock the resource
+	// graph. Optional dep means chess builds even if ai-responder isn't
+	// ready yet; once ai-responder comes up, chess rebuilds (AlwaysRebuild)
+	// and the dep resolves.
+	if cfg.OnMoveTarget != "" {
+		optionalDeps = append(optionalDeps, "rdk:service:generic/"+cfg.OnMoveTarget)
 	}
 
 	if cfg.CaptureDir != "" {
