@@ -11,7 +11,7 @@ interface MachineCookie {
   machineName?: string;
 }
 
-type EvtType = "go" | "reset" | "wipe" | "cache" | "refresh" | "snapshot" | "err";
+type EvtType = "go" | "undo" | "reset" | "wipe" | "cache" | "refresh" | "snapshot" | "err";
 interface MoveEntry {
   kind: "move";
   i: number;
@@ -73,6 +73,8 @@ let lastMove: { from: string; to: string; san?: string } | null = null;
 
 let tapeItems: TapeEntry[] = [];
 let plyCount = 0;
+let showTapeLogs = true;
+let initialLoaded = false;
 
 // When the user makes a direct move, we apply it optimistically and the UI
 // becomes authoritative for board state. Server snapshots during this window
@@ -80,6 +82,11 @@ let plyCount = 0;
 // FEN reverts the move in the UI while the camera already shows the new position.
 // Robot `go` / `wipe` / `reset` flip this back to true so the server drives state.
 let serverAuthoritative = true;
+
+// After cmdUndo runs, the next FEN diff will look like a piece moving back to
+// its source square. This flag tells applySnapshot to ignore that one inference
+// so it doesn't re-push the undone move into the tape as a phantom forward move.
+let suppressFenInferOnce = false;
 
 let selectedSq: string | null = null;
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -147,13 +154,6 @@ function sumValue(pieces: string[]): number {
   return pieces.reduce((a, p) => a + (PIECE_VALUE[p.toUpperCase()] ?? 0), 0);
 }
 
-function sortCaptured(pieces: string[]): string[] {
-  const order = ["Q", "R", "B", "N", "P"];
-  return [...pieces].sort(
-    (a, b) => order.indexOf(a.toUpperCase()) - order.indexOf(b.toUpperCase())
-  );
-}
-
 // Infer a single-ply move from a before/after board diff. Returns null when
 // the diff doesn't cleanly resolve to one from + one to (e.g., castling, en
 // passant, or multi-ply jump). Used when state advances externally (another
@@ -194,7 +194,13 @@ function inferSingleMove(
 
 async function connect() {
   const cookieKey = window.location.pathname.split("/")[2];
-  const raw = Cookies.get(cookieKey);
+  let raw = Cookies.get(cookieKey);
+  // local-app-testing proxy names the cookie after the machine ID, not the path segment.
+  if (!raw) {
+    for (const val of Object.values(Cookies.get())) {
+      try { if ((JSON.parse(val) as MachineCookie).apiKey) { raw = val; break; } } catch {}
+    }
+  }
   if (!raw) throw new Error("Viam machine cookie not found — open this app from the Viam portal.");
   const cookie: MachineCookie = JSON.parse(raw);
   const { apiKey, hostname, machineName } = cookie;
@@ -464,7 +470,7 @@ function renderCaptured(id: string, pieces: string[]) {
     el.appendChild(empty);
     return;
   }
-  for (const p of sortCaptured(pieces)) {
+  for (const p of pieces) {
     const url = pieceUrl(p);
     if (!url) continue;
     const img = document.createElement("img");
@@ -502,6 +508,7 @@ function renderTape() {
   // Newest first — iterate in reverse.
   for (let k = tapeItems.length - 1; k >= 0; k--) {
     const it = tapeItems[k];
+    if (it.kind === "evt" && !showTapeLogs) continue;
     if (it.kind === "evt") {
       const row = document.createElement("div");
       row.className = "tape-evt";
@@ -588,6 +595,8 @@ function applySnapshot(res: Record<string, JsonValue>) {
           // FEN jumped back to starting position — someone called wipe/reset.
           // Clear our tape so we don't display stale history alongside a fresh game.
           observedReset = true;
+        } else if (suppressFenInferOnce) {
+          suppressFenInferOnce = false;
         } else if (prevBoard) {
           const inferred = inferSingleMove(prevBoard, currentBoard);
           if (inferred && (lastMove?.from !== inferred.from || lastMove?.to !== inferred.to)) {
@@ -616,6 +625,10 @@ function applySnapshot(res: Record<string, JsonValue>) {
   renderMaterial();
   renderTopStatus();
   updateStatusFromMismatches();
+  if (!initialLoaded) {
+    initialLoaded = true;
+    document.getElementById("board-loading")?.classList.add("hidden");
+  }
 
   if (observedReset) {
     resetTape();
@@ -804,6 +817,34 @@ async function withBusy(fn: () => Promise<void>) {
   } finally {
     setBusy(false);
     startAutoRefresh();
+  }
+}
+
+function popLastMoveFromTape() {
+  for (let i = tapeItems.length - 1; i >= 0; i--) {
+    if (tapeItems[i].kind === "move") {
+      tapeItems.splice(i, 1);
+      plyCount = Math.max(0, plyCount - 1);
+      break;
+    }
+  }
+  lastMove = null;
+}
+
+async function cmdUndo() {
+  const n = 1;
+  serverAuthoritative = true;
+  try {
+    await withBusy(async () => {
+      suppressFenInferOnce = true;
+      await doCommand({ undo: n });
+      popLastMoveFromTape();
+      pushEvent("undo", `undo ×${n}`);
+    });
+  } catch (e) {
+    suppressFenInferOnce = false;
+    const msg = e instanceof Error ? e.message : String(e);
+    pushEvent("err", `undo ${n}: ${msg}`);
   }
 }
 
@@ -1019,6 +1060,12 @@ function toggleCamera() {
 // ── Wire events ────────────────────────────────────────────────────────────
 
 document.getElementById("btn-go")!.addEventListener("click", () => void cmdGo());
+document.getElementById("tape-logs-toggle")!.addEventListener("click", () => {
+  showTapeLogs = !showTapeLogs;
+  document.getElementById("tape-logs-toggle")!.classList.toggle("active", showTapeLogs);
+  renderTape();
+});
+document.getElementById("btn-undo")!.addEventListener("click", () => void cmdUndo());
 document.getElementById("btn-move")!.addEventListener("click", () => void cmdDirectMoveFromInputs());
 document.getElementById("btn-refresh")!.addEventListener("click", () => void cmdMaintenance("refresh"));
 document.getElementById("btn-snapshot")!.addEventListener("click", () => void cmdMaintenance("snapshot"));
@@ -1085,6 +1132,7 @@ renderTopStatus();
 
 if (mockMode) {
   setStatus("mock", "warn");
+  document.getElementById("board-loading")?.classList.add("hidden");
   const machineEl = document.getElementById("machine-name");
   if (machineEl) machineEl.textContent = "mock";
 } else {

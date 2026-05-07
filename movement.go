@@ -19,6 +19,20 @@ import (
 )
 
 func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board) error {
+	return s.movePieceWithPickupZ(ctx, data, theState, from, to, m, board, 0)
+}
+
+func (s *viamChessChess) pickupZForPieceType(pt chess.PieceType) float64 {
+	if pt == chess.King || pt == chess.Queen {
+		return s.conf.grabZTall()
+	}
+	return s.conf.grabZ()
+}
+
+// pickupZOverride <= 0 means auto-detect from theState/board (matches movePiece).
+// Pass a positive value when the source isn't expressible as a chess.Board square
+// (e.g., a graveyard slot during undo).
+func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscapture.VisCapture, theState *state, from, to string, m *chess.Move, board *chess.Board, pickupZOverride float64) error {
 	s.movePieceStatus.Add(1)
 	defer s.movePieceStatus.Add(-1)
 
@@ -26,7 +40,7 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 	defer span.End()
 
 	s.logger.Infof("movePiece called: %s -> %s", from, to)
-	if to != "-" && to[0] != 'X' { // check where we're going
+	if to != "-" && to[0] != 'X' {
 		occupied := false
 		var capturedPiece chess.Piece
 		if theState != nil {
@@ -60,23 +74,29 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 	grabZ := s.conf.grabZ()
 	grabZTall := s.conf.grabZTall()
 
-	// Determine grab height based on piece type.
 	pickupZ := grabZ
-	var pieceBoard *chess.Board
-	if theState != nil {
-		pieceBoard = theState.game.Position().Board()
-	} else if board != nil {
-		pieceBoard = board
-	}
-	if pieceBoard != nil && len(from) == 2 {
-		sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
-		pt := pieceBoard.Piece(sq).Type()
-		if pt == chess.King || pt == chess.Queen {
+	if pickupZOverride > 0 {
+		pickupZ = pickupZOverride
+	} else {
+		var pieceBoard *chess.Board
+		if theState != nil {
+			pieceBoard = theState.game.Position().Board()
+		} else if board != nil {
+			pieceBoard = board
+		}
+		if pieceBoard != nil && len(from) == 2 {
+			sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
+			pt := pieceBoard.Piece(sq).Type()
+			if pt == chess.King || pt == chess.Queen {
+				pickupZ = grabZTall
+			}
+		}
+		// extraQueenGraveyardSlot always holds a queen (see promotion.go).
+		if from == fmt.Sprintf("XW%d", extraQueenGraveyardSlot) || from == fmt.Sprintf("XB%d", extraQueenGraveyardSlot) {
 			pickupZ = grabZTall
 		}
 	}
 
-	// Pick up from source square.
 	{
 		xy, err := s.getSquareXY(from, data)
 		if err != nil {
@@ -127,21 +147,34 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 		}
 	}
 
-	// Place at destination square.
 	{
 		var destXY r3.Vector
 		if to == "-" {
-			// Placing a captured piece into the graveyard.
-			// Determine its color from the source square so we can place it on the correct side.
-			colorIdx, isWhite := 0, false
+			// Slot 0 is reserved for the promotion spare queen; captures use 1+.
+			// Without theState we can read color from the camera label
+			// ("<sq>-1" = white, "<sq>-2" = black) but not the slot count, so we
+			// default to slot 1 — cmd.Go is the bookkeeper for accumulation.
+			colorIdx, isWhite := 1, false
 			if theState != nil && len(from) == 2 {
 				sq := chess.NewSquare(chess.File(from[0]-'a'), chess.Rank(from[1]-'1'))
 				piece := theState.game.Position().Board().Piece(sq)
 				isWhite = piece.Color() == chess.White
 				if isWhite {
-					colorIdx = len(theState.whiteGraveyard)
+					colorIdx = len(theState.whiteGraveyard) + 1
 				} else {
-					colorIdx = len(theState.blackGraveyard)
+					colorIdx = len(theState.blackGraveyard) + 1
+				}
+			} else if len(from) == 2 && len(data.Objects) > 0 {
+				if o := s.findObject(data, from); o != nil {
+					label := o.Geometry.Label()
+					if !strings.HasSuffix(label, "-0") && len(label) > 0 {
+						switch label[len(label)-1] {
+						case '1':
+							isWhite = true
+						case '2':
+							isWhite = false
+						}
+					}
 				}
 			}
 			center, err := s.graveyardPosition(data, colorIdx, isWhite)
@@ -150,7 +183,6 @@ func (s *viamChessChess) movePiece(ctx context.Context, data viscapture.VisCaptu
 			}
 			destXY = r3.Vector{X: center.X, Y: center.Y}
 		} else if len(to) > 0 && to[0] == 'X' {
-			// Graveyard retrieval (e.g. during reset): encoded as "XW{n}" or "XB{n}".
 			center, err := s.getCenterFor(data, to, theState)
 			if err != nil {
 				return err

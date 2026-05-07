@@ -18,32 +18,44 @@ func (s *viamChessChess) pickMove(ctx context.Context, game *chess.Game) (*chess
 	ctx, span := trace.StartSpan(ctx, "pickMove")
 	defer span.End()
 
+	var picked *chess.Move
 	if s.engine == nil {
 		moves := game.ValidMoves()
 		if len(moves) == 0 {
 			return nil, fmt.Errorf("no valid moves")
 		}
-		return &moves[0], nil
+		picked = &moves[0]
+	} else {
+		multiplier := 1.0
+		if s.skillAdjust < 50 {
+			multiplier = float64(s.skillAdjust) / 50.0
+			s.logger.Infof("multiplier: %v", multiplier)
+		} else if s.skillAdjust > 50 {
+			multiplier = float64(s.skillAdjust-50) * 2
+			s.logger.Infof("multiplier: %v", multiplier)
+		}
+
+		cmdPos := uci.CmdPosition{Position: game.Position()}
+		cmdGo := uci.CmdGo{MoveTime: time.Millisecond * time.Duration(float64(s.conf.engineMillis())*multiplier)}
+		err := s.engine.Run(cmdPos, cmdGo)
+		if err != nil {
+			return nil, err
+		}
+		picked = s.engine.SearchResults().BestMove
 	}
 
-	multiplier := 1.0
-	if s.skillAdjust < 50 {
-		multiplier = float64(s.skillAdjust) / 50.0
-		s.logger.Infof("multiplier: %v", multiplier)
-	} else if s.skillAdjust > 50 {
-		multiplier = float64(s.skillAdjust-50) * 2
-		s.logger.Infof("multiplier: %v", multiplier)
+	// Auto-queen.
+	if picked.Promo() != chess.NoPieceType && picked.Promo() != chess.Queen {
+		for _, vm := range game.ValidMoves() {
+			if vm.S1() == picked.S1() && vm.S2() == picked.S2() && vm.Promo() == chess.Queen {
+				vm := vm
+				picked = &vm
+				break
+			}
+		}
 	}
 
-	cmdPos := uci.CmdPosition{Position: game.Position()}
-	cmdGo := uci.CmdGo{MoveTime: time.Millisecond * time.Duration(float64(s.conf.engineMillis())*multiplier)}
-	err := s.engine.Run(cmdPos, cmdGo)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.engine.SearchResults().BestMove, nil
-
+	return picked, nil
 }
 
 func (s *viamChessChess) makeNMoves(ctx context.Context, n int) ([]*chess.Move, error) {
@@ -67,12 +79,8 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		return nil, err
 	}
 
-	// Go home and capture pointcloud only when the square position cache is
-	// incomplete or a sanity check is requested. The arm must be clear of the
-	// board for the camera capture, which is why goToStart is tied to it.
-	// Once all 64 squares are cached we skip both: the arm proceeds directly
-	// from its current position (hovering above the last placed piece) to the
-	// next source square.
+	// goToStart clears the arm from the camera's view; skip it once the square
+	// cache is warm so the arm can move source-to-source.
 	var all viscapture.VisCapture
 	if !s.allSquaresCached() || doSanityCheck {
 		err = s.goToStart(ctx)
@@ -91,11 +99,7 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		if err != nil {
 			return nil, err
 		}
-		// checkPositionForMoves loads its own copy of the state, applies the
-		// human's move, and saves it. Reload so pickMove sees the updated turn.
-		//
-		// checkPositionForMoves may have recorded a human move and saved the game.
-		// Reload so pickMove, movePiece, and saveGame operate on the current position.
+		// Reload: checkPositionForMoves may have applied & saved a human move.
 		theState, err = s.getGame(ctx)
 		if err != nil {
 			return nil, err
@@ -159,9 +163,15 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 		}
 	}
 
-	err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil)
-	if err != nil {
-		return nil, err
+	if m.Promo() != chess.NoPieceType {
+		if err := s.handlePromotionMove(ctx, all, theState, m); err != nil {
+			return nil, err
+		}
+	} else {
+		err = s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	err = theState.game.Move(m, nil)
@@ -177,11 +187,6 @@ func (s *viamChessChess) makeAMove(ctx context.Context, doSanityCheck bool) (*ch
 	return m, nil
 }
 
-// undoMoves reverts the last n moves on the physical board and updates the saved game state.
-// For each move being undone (newest first):
-//   - The piece is moved back from its destination to its source.
-//   - For castling, the rook is also moved back.
-//   - For captures, the captured piece is restored from the graveyard to its original square.
 func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 	ctx, span := trace.StartSpan(ctx, "undoMoves")
 	defer span.End()
@@ -198,7 +203,12 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 
 	keepCount := len(moves) - n
 
-	// Fresh snapshot for physical moves and to populate the square position cache.
+	for i := keepCount; i < len(moves); i++ {
+		if moves[i].Promo() != chess.NoPieceType {
+			return fmt.Errorf("cannot undo through promotion move %s", moves[i].String())
+		}
+	}
+
 	err = s.goToStart(ctx)
 	if err != nil {
 		return fmt.Errorf("can't go home: %w", err)
@@ -209,10 +219,12 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 	}
 	s.populateCacheFromCapture(all)
 
-	// Replay the full move history to record what each move captured (needed for graveyard restoration).
+	// Replay history to recover what each move captured (for graveyard restoration)
+	// and what landed on m.S2() (handles promotion).
 	type moveInfo struct {
 		capturedPiece chess.Piece
-		captureSquare string // board square where the captured piece should be restored
+		captureSquare string
+		movedPiece    chess.Piece
 	}
 	infos := make([]moveInfo, len(moves))
 	tempGame := chess.NewGame()
@@ -232,20 +244,19 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 			info.capturedPiece = board.Piece(m.S2())
 			info.captureSquare = m.S2().String()
 		}
-		infos[i] = info
 		if err := tempGame.Move(m, nil); err != nil {
 			return fmt.Errorf("replay move %d: %w", i, err)
 		}
+		info.movedPiece = tempGame.Position().Board().Piece(m.S2())
+		infos[i] = info
 	}
 
-	// Track graveyard state so we know which slot to retrieve each captured piece from.
 	curWhiteGY := make([]int, len(theState.whiteGraveyard))
 	copy(curWhiteGY, theState.whiteGraveyard)
 	curBlackGY := make([]int, len(theState.blackGraveyard))
 	copy(curBlackGY, theState.blackGraveyard)
 
-	// Mark a board square as empty in the snapshot so subsequent movePiece calls
-	// don't see stale occupancy data (mirrors the pattern in resetBoard).
+	// Stamp the snapshot empty so subsequent movePiece calls don't see stale occupancy.
 	clearSquare := func(squareName string) {
 		for _, o := range all.Objects {
 			if strings.HasPrefix(o.Geometry.Label(), squareName+"-") {
@@ -255,18 +266,17 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 		}
 	}
 
-	// Undo each move newest-first.
 	for i := len(moves) - 1; i >= keepCount; i-- {
 		m := moves[i]
 		info := infos[i]
 
-		// Move the main piece back: destination → source.
-		if err := s.movePiece(ctx, all, nil, m.S2().String(), m.S1().String(), nil, nil); err != nil {
+		// theState/board are nil (camera-driven occupancy), so auto-detect can't
+		// see what's on m.S2(); pass the replayed piece's pickup-Z explicitly.
+		if err := s.movePieceWithPickupZ(ctx, all, nil, m.S2().String(), m.S1().String(), nil, nil, s.pickupZForPieceType(info.movedPiece.Type())); err != nil {
 			return fmt.Errorf("undo move %s: %w", m.String(), err)
 		}
 		clearSquare(m.S2().String())
 
-		// For castling, also move the rook back.
 		if m.HasTag(chess.KingSideCastle) || m.HasTag(chess.QueenSideCastle) {
 			var rookFrom, rookTo string
 			switch m.S1().String() {
@@ -289,7 +299,6 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 			clearSquare(rookFrom)
 		}
 
-		// Restore any captured piece from the graveyard back to its original square.
 		if info.capturedPiece != chess.NoPiece {
 			isWhite := info.capturedPiece.Color() == chess.White
 			var gyFrom string
@@ -302,13 +311,14 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 				gyFrom = fmt.Sprintf("XB%d", idx)
 				curBlackGY = curBlackGY[:idx]
 			}
-			if err := s.movePiece(ctx, all, nil, gyFrom, info.captureSquare, nil, nil); err != nil {
+			// Source is a graveyard slot, so force pickup-Z.
+			if err := s.movePieceWithPickupZ(ctx, all, nil, gyFrom, info.captureSquare, nil, nil, s.pickupZForPieceType(info.capturedPiece.Type())); err != nil {
 				return fmt.Errorf("undo restore captured piece: %w", err)
 			}
 		}
 	}
 
-	// Rebuild game state by replaying only the kept moves, re-deriving the graveyard.
+	// Rebuild state by replaying the kept moves, re-deriving the graveyard.
 	newState := &state{game: chess.NewGame(), whiteGraveyard: []int{}, blackGraveyard: []int{}}
 	for i := 0; i < keepCount; i++ {
 		m := moves[i]
@@ -328,20 +338,15 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 				newState.blackGraveyard = append(newState.blackGraveyard, int(captured))
 			}
 		}
-		// Use PushNotationMove instead of Move(m) to avoid re-using the original
-		// *chess.Move pointer. Those pointers still have their children from the old
-		// game tree; passing them directly into newState.game would cause
-		// newState.game.Moves() to traverse into the discarded tail and save moves
-		// that should have been undone.
+		// Reusing the original *chess.Move would drag along its children from
+		// the old tree, so newState.Moves() would traverse the undone tail.
 		if err := newState.game.PushNotationMove(m.String(), chess.UCINotation{}, nil); err != nil {
 			return fmt.Errorf("rebuild move %d: %w", i, err)
 		}
 	}
 
-	// Refresh the piece finder's internal snapshot cache with the post-undo board
-	// state. Some piece finder implementations cache the last capture result, so
-	// without this the subsequent `go` command would compare the game state against
-	// the pre-undo snapshot and see N×2 spurious differences.
+	// Some piece finders cache the last capture; refresh so the next `go` doesn't
+	// see N×2 spurious diffs from a pre-undo snapshot.
 	s.clearSquareCache()
 	if err := s.goToStart(ctx); err != nil {
 		return fmt.Errorf("can't go home after undo: %w", err)
@@ -355,11 +360,7 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 	return s.saveGame(ctx, newState)
 }
 
-// checkPositionForMoves inspects the camera capture for a single legal human
-// move that hasn't been registered yet. If it finds one, it applies and saves
-// the move, and returns a pointer to it. Returns (nil, nil) when the camera
-// matches game state (no unregistered move). Returns an error when the diff
-// can't be explained by a single legal move.
+// Detects, applies, and saves an unregistered human move. (nil, nil) = no diff.
 func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscapture.VisCapture) (*chess.Move, error) {
 	ctx, span := trace.StartSpan(ctx, "checkPositionForMoves")
 	defer span.End()
@@ -373,14 +374,8 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 	from := chess.NoSquare
 	to := chess.NoSquare
 
-	// "bad number of differences" almost always comes from a single noisy frame:
-	// the physical board is in a valid state but one or more squares are
-	// momentarily misclassified. Recapture and re-scan until the diff resolves
-	// to a legal move shape (0, 2, or a recognized castle quartet).
-	//
-	// Bounded: if the diff is still weird after several fresh captures, it's
-	// almost certainly a real illegal physical state (human moved two pieces,
-	// knocked one over, etc.) — return the error so the caller can surface it.
+	// Recapture on weird diffs (vision noise); a real illegal state will persist
+	// past badDiffMaxAttempts and surface as an error.
 	badDiffMaxAttempts := s.conf.badDiffMaxAttempts()
 	for attempt := 1; ; attempt++ {
 		differences = differences[:0]
@@ -413,27 +408,15 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		}
 
 		if len(differences) == 4 {
-			// is this a castle??
+			// castle?
 			if squaresSame(differences, []chess.Square{chess.E1, chess.F1, chess.G1, chess.H1}) {
-				// white king castle
-				from = chess.E1
-				to = chess.G1
-				differences = nil
+				from, to, differences = chess.E1, chess.G1, nil
 			} else if squaresSame(differences, []chess.Square{chess.E1, chess.A1, chess.C1, chess.D1}) {
-				// white queen castle
-				from = chess.E1
-				to = chess.C1
-				differences = nil
+				from, to, differences = chess.E1, chess.C1, nil
 			} else if squaresSame(differences, []chess.Square{chess.E8, chess.F8, chess.G8, chess.H8}) {
-				// black king castle
-				from = chess.E8
-				to = chess.G8
-				differences = nil
+				from, to, differences = chess.E8, chess.G8, nil
 			} else if squaresSame(differences, []chess.Square{chess.E8, chess.A8, chess.C8, chess.D8}) {
-				// black queen castle
-				from = chess.E8
-				to = chess.C8
-				differences = nil
+				from, to, differences = chess.E8, chess.C8, nil
 			}
 		}
 
@@ -462,8 +445,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		if m.S1() == from && m.S2() == to {
 			s.logger.Infof("found it: %v", m.String())
 
-			// Track captured pieces in the graveyard so that reset
-			// knows where they are (the human placed them physically).
+			// Record human-placed captures so reset can retrieve them.
 			if m.HasTag(chess.Capture) {
 				captured := theState.game.Position().Board().Piece(m.S2())
 				if captured != chess.NoPiece {
@@ -474,13 +456,9 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 					}
 				}
 			} else if m.HasTag(chess.EnPassant) {
-				// The captured pawn is on the same rank as the moving pawn,
-				// on the file of the destination square.
 				if m.S1().Rank() == chess.Rank5 {
-					// White captures black pawn via en passant.
 					theState.blackGraveyard = append(theState.blackGraveyard, int(chess.BlackPawn))
 				} else {
-					// Black captures white pawn via en passant.
 					theState.whiteGraveyard = append(theState.whiteGraveyard, int(chess.WhitePawn))
 				}
 			}
@@ -490,14 +468,23 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 				return nil, err
 			}
 
+			// Human performs the physical pawn→queen swap themselves; record
+			// the vanished pawn so reset/snapshot stay consistent.
+			if m.Promo() != chess.NoPieceType {
+				if m.S2().Rank() == chess.Rank8 {
+					theState.whiteGraveyard = append(theState.whiteGraveyard, int(chess.WhitePawn))
+				} else {
+					theState.blackGraveyard = append(theState.blackGraveyard, int(chess.BlackPawn))
+				}
+			}
+
 			err = s.saveGame(ctx, theState)
 			if err != nil {
 				return nil, err
 			}
 
-			// If the human only moved the king (2 differences), physically move
-			// the rook too. Use nil theState so movePiece reads occupancy from
-			// the camera (F1/D1/F8/D8 is empty, rook is still at H1/A1/H8/A8).
+			// 2-diff means the human only moved the king; we move the rook.
+			// nil theState forces camera-driven occupancy reads.
 			if len(differences) == 2 {
 				var rookFrom, rookTo string
 				switch {
@@ -509,6 +496,22 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 					rookFrom, rookTo = "h8", "f8"
 				case m.HasTag(chess.QueenSideCastle) && from == chess.E8:
 					rookFrom, rookTo = "a8", "d8"
+				}
+				// Skip if camera says the human already moved the rook (classifier
+				// missed those 2 diffs); avoids grabbing air from the rook home.
+				if rookFrom != "" {
+					if rookOrig := s.findObject(all, rookFrom); rookOrig != nil &&
+						strings.HasSuffix(rookOrig.Geometry.Label(), "-0") {
+						s.logger.Infof("castle: rook source %s is empty, skipping", rookFrom)
+						rookFrom = ""
+					}
+				}
+				if rookFrom != "" {
+					if rookDest := s.findObject(all, rookTo); rookDest != nil &&
+						!strings.HasSuffix(rookDest.Geometry.Label(), "-0") {
+						s.logger.Infof("castle: rook destination %s already occupied, skipping", rookTo)
+						rookFrom = ""
+					}
 				}
 				if rookFrom != "" {
 					s.logger.Infof("castle detected: moving rook %s -> %s", rookFrom, rookTo)
@@ -522,7 +525,7 @@ func (s *viamChessChess) checkPositionForMoves(ctx context.Context, all viscaptu
 		}
 	}
 
-	return nil, fmt.Errorf("no valid moves from: %v to %v found out of %d", from, to, len(moves))
+	return nil, fmt.Errorf("no valid moves from: %s to %s found out of %d", squareToString(from), squareToString(to), len(moves))
 }
 
 func squaresSame(a, b []chess.Square) bool {
@@ -530,7 +533,6 @@ func squaresSame(a, b []chess.Square) bool {
 		return false
 	}
 
-	// Check that every element in a exists in b
 	for _, sq := range a {
 		found := false
 		if slices.Contains(b, sq) {

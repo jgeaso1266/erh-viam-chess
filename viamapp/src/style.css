@@ -415,6 +415,34 @@ a.machine-name[href]:hover { text-decoration: underline; }
   text-transform: uppercase;
 }
 
+/* Board wrap + loading overlay */
+.board-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.board-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(18, 18, 20, 0.55);
+  transition: opacity 0.3s;
+}
+.board-loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.board-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--line-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* Chess board */
 .chess-board {
   --sq-size: clamp(40px, min(calc((100vh - 240px) / 8.4), calc((100vw - 600px) / 8.4)), 72px);
@@ -519,6 +547,24 @@ a.machine-name[href]:hover { text-decoration: underline; }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 8px;
+}
+.tape-logs-toggle {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.1s, border-color 0.1s;
+}
+.tape-logs-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .tape {
   flex: 1;
@@ -580,6 +626,7 @@ a.machine-name[href]:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 .tape-evt-tag.go { color: var(--accent); }
+.tape-evt-tag.undo { color: var(--warning); }
 .tape-evt-tag.reset { color: var(--warning); }
 .tape-evt-tag.wipe { color: var(--danger); }
 .tape-evt-tag.cache { color: var(--text-3); }

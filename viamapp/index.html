@@ -28,6 +28,7 @@
             <span class="eyebrow-xxs">Robot</span>
             <input id="go-n" class="input mono inline-input" value="1" maxlength="2" />
             <button id="btn-go" class="btn btn-accent">▶ Go</button>
+            <button id="btn-undo" class="btn" title="Undo last ply">↺ Undo</button>
           </div>
           <div id="go-error" class="inline-error hidden">
             <span class="inline-error-tag">err</span>
@@ -120,7 +121,12 @@
 
         <!-- Center -->
         <main class="center-stage">
-          <div id="board" class="chess-board"></div>
+          <div class="board-wrap">
+            <div id="board" class="chess-board"></div>
+            <div id="board-loading" class="board-loading">
+              <div class="board-spinner"></div>
+            </div>
+          </div>
           <div class="board-hint">drag pieces · or click source then destination</div>
         </main>
 
@@ -128,6 +134,7 @@
         <aside class="right-rail">
           <div class="tape-header">
             <span class="eyebrow">Tape</span>
+            <button id="tape-logs-toggle" class="tape-logs-toggle active" type="button" title="Toggle log events">logs</button>
             <span id="tape-ply" class="mono subtle-2 xs">0 ply</span>
           </div>
           <div id="tape" class="tape"></div>

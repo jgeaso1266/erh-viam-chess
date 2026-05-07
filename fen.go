@@ -10,8 +10,7 @@ import (
 	"go.viam.com/rdk/vision/viscapture"
 )
 
-// playFENFile reads a PGN file at the given path, wipes the current game state,
-// and physically replays every move from the starting position.
+// Wipes state, then physically replays every move from the PGN.
 func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -28,14 +27,12 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 	moves := parsedGame.Moves()
 	s.logger.Infof("playFENFile: loaded %d moves from %s", len(moves), path)
 
-	// Wipe state so we start fresh from the initial board position.
 	if err := s.wipe(ctx); err != nil {
 		return fmt.Errorf("wipe before playFENFile: %w", err)
 	}
 
 	theState := &state{chess.NewGame(), []int{}, []int{}}
 
-	// One capture to populate the square position cache.
 	err = s.goToStart(ctx)
 	if err != nil {
 		return err
@@ -86,8 +83,14 @@ func (s *viamChessChess) playFENFile(ctx context.Context, path string) error {
 			}
 		}
 
-		if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil); err != nil {
-			return fmt.Errorf("playFENFile move %d (%s): %w", i+1, m.String(), err)
+		if m.Promo() != chess.NoPieceType {
+			if err := s.handlePromotionMove(ctx, all, theState, m); err != nil {
+				return fmt.Errorf("playFENFile promote move %d (%s): %w", i+1, m.String(), err)
+			}
+		} else {
+			if err := s.movePiece(ctx, all, theState, m.S1().String(), m.S2().String(), m, nil); err != nil {
+				return fmt.Errorf("playFENFile move %d (%s): %w", i+1, m.String(), err)
+			}
 		}
 
 		if err := theState.game.Move(m, nil); err != nil {

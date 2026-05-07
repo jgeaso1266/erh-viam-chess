@@ -14,8 +14,8 @@ var homeRanks = []chess.Rank{chess.Rank1, chess.Rank2, chess.Rank8, chess.Rank7}
 
 type resetState struct {
 	board          *chess.Board
-	whiteGraveyard []int // captured white pieces; encoded as squares 70–84
-	blackGraveyard []int // captured black pieces; encoded as squares 85–99
+	whiteGraveyard []int // squares 70–84
+	blackGraveyard []int // squares 85–99
 }
 
 func (s *resetState) applyMove(from, to chess.Square) error {
@@ -38,11 +38,16 @@ func (s *resetState) applyMove(from, to chess.Square) error {
 }
 
 func squareToString(s chess.Square) string {
+	// chess.NoSquare.String() panics; render a sentinel so error messages survive.
+	if s == chess.NoSquare {
+		return "<none>"
+	}
+	// Slot 0 is the spare queen; slice index i → physical slot i+1.
 	if s >= 85 {
-		return fmt.Sprintf("XB%d", int(s)-85)
+		return fmt.Sprintf("XB%d", int(s)-85+1)
 	}
 	if s >= 70 {
-		return fmt.Sprintf("XW%d", int(s)-70)
+		return fmt.Sprintf("XW%d", int(s)-70+1)
 	}
 	return s.String()
 }
@@ -81,8 +86,6 @@ func findForRest(theState *resetState, correct *chess.Board, what chess.Piece) (
 }
 
 func nextResetMove(theState *resetState) (chess.Square, chess.Square, error) {
-	// first look for empty home squares
-
 	correct := chess.NewGame().Position().Board()
 
 	for _, r := range homeRanks {
@@ -118,10 +121,9 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		blackGraveyard: theMainState.blackGraveyard,
 	}
 
-	// Clear stale cache — the board has moved since the last game.
+	// Cache is stale after a game.
 	s.clearSquareCache()
 
-	// One snapshot before the loop to populate the square cache.
 	err = s.goToStart(ctx)
 	if err != nil {
 		return err
@@ -131,6 +133,11 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		return err
 	}
 	s.populateCacheFromCapture(all)
+
+	// Restock the spare queen before the normal reset loop runs.
+	if err := s.restoreExtraQueens(ctx, all, theState); err != nil {
+		return err
+	}
 
 	for {
 		from, to, err := nextResetMove(theState)
@@ -147,9 +154,8 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 			return err
 		}
 
-		// Mark the source square as empty in the snapshot so that subsequent
-		// movePiece calls don't see stale occupancy data.
-		if from < 70 { // board square, not a graveyard slot
+		// Stamp source empty so subsequent movePiece reads aren't stale.
+		if from < 70 {
 			for _, o := range all.Objects {
 				if strings.HasPrefix(o.Geometry.Label(), fromStr+"-") {
 					o.Geometry.SetLabel(fromStr + "-0")
@@ -165,4 +171,63 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 	}
 
 	return s.wipe(ctx)
+}
+
+// v1 supports one promotion per side (single reserve slot).
+func (s *viamChessChess) restoreExtraQueens(ctx context.Context, all viscapture.VisCapture, theState *resetState) error {
+	for _, color := range []chess.Color{chess.White, chess.Black} {
+		queens := findQueenSquares(theState.board, color)
+		if len(queens) <= 1 {
+			continue
+		}
+		extraSq := pickExtraQueen(queens, color)
+
+		slot := fmt.Sprintf("XW%d", extraQueenGraveyardSlot)
+		if color == chess.Black {
+			slot = fmt.Sprintf("XB%d", extraQueenGraveyardSlot)
+		}
+
+		if err := s.movePiece(ctx, all, nil, extraSq.String(), slot, nil, theState.board); err != nil {
+			return fmt.Errorf("restore extra %v queen from %s to %s: %w", color, extraSq, slot, err)
+		}
+
+		m := theState.board.SquareMap()
+		m[extraSq] = chess.NoPiece
+		theState.board = chess.NewBoard(m)
+
+		sqStr := extraSq.String()
+		for _, o := range all.Objects {
+			if strings.HasPrefix(o.Geometry.Label(), sqStr+"-") {
+				o.Geometry.SetLabel(sqStr + "-0")
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func findQueenSquares(b *chess.Board, color chess.Color) []chess.Square {
+	var out []chess.Square
+	for sq := chess.A1; sq <= chess.H8; sq++ {
+		p := b.Piece(sq)
+		if p.Type() == chess.Queen && p.Color() == color {
+			out = append(out, sq)
+		}
+	}
+	return out
+}
+
+// Prefer the off-home queen (the promoted one); fall back to either when both
+// are off-home or both share the home square.
+func pickExtraQueen(queens []chess.Square, color chess.Color) chess.Square {
+	home := chess.D1
+	if color == chess.Black {
+		home = chess.D8
+	}
+	for _, sq := range queens {
+		if sq != home {
+			return sq
+		}
+	}
+	return queens[0]
 }
