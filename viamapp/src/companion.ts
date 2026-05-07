@@ -552,6 +552,12 @@ function injectStyles(): void {
   50%  {                                            opacity: 0.8; }
   100% { transform: translateY(-12px) rotate(8deg); opacity: 0; }
 }
+@keyframes cp-scan {
+  0%   { transform: translateY(0);    opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { transform: translateY(300px); opacity: 0; }
+}
 @keyframes cp-slot-pulse {
   0%, 100% { opacity: 0.7; box-shadow: 0 0 10px rgba(127,209,168,0.3) inset; }
   50%      { opacity: 1;   box-shadow: 0 0 20px rgba(127,209,168,0.65) inset; }
@@ -679,6 +685,13 @@ function dioramaBadState(size: number, color: string): HTMLElement {
     animation: "cp-float 2s ease-in-out infinite",
     textShadow: "0 4px 12px rgba(224,178,96,0.4)",
   }, "?"));
+  // Scanning line — sweeps top to bottom as if camera diagnosing
+  wrap.appendChild(h("div", {
+    position: "absolute", top: "0", left: "0", right: "0", height: "2px",
+    background: `linear-gradient(to right, transparent, ${color}, transparent)`,
+    boxShadow: `0 0 12px ${color}`,
+    animation: "cp-scan 3s ease-in-out infinite",
+  }));
   wrap.appendChild(h("span", {
     position: "absolute", top: "52%", left: "50%",
     transform: "translate(-50%, -50%) rotate(95deg)",
