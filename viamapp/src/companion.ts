@@ -329,6 +329,9 @@ export function onMove(newPlyCount: number): void {
     startFirstMoveAutoDismiss();
   }
 
+  if (activeScenario === "first-capture" && newPlyCount % 2 === 1) {
+    activeScenario = null;
+  }
   if (activeScenario === "long-pause") {
     activeScenario = null;
   }
