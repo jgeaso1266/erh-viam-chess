@@ -876,10 +876,10 @@ function dioramaFirstCapture(size: number): HTMLElement {
   // WHITE stash — column LEFT of a-file, going DOWN (WQ at slot 0 = a8 row)
   [
     { g: "\u2655", slot: 0, c: accent,          glow: true,  s: 0.95 },
-    { g: "\u2659", slot: 1, c: "var(--text-2)", glow: false, s: 0.78 },
-    { g: "\u2657", slot: 2, c: "var(--text-2)", glow: false, s: 0.88 },
-    { g: "\u2658", slot: 3, c: "var(--text-2)", glow: false, s: 0.90 },
-    { g: "\u2656", slot: 4, c: "var(--text-2)", glow: false, s: 0.92 },
+    { g: "\u2659", slot: 1, c: "var(--text-1)", glow: false, s: 0.78 },
+    { g: "\u2657", slot: 2, c: "var(--text-1)", glow: false, s: 0.88 },
+    { g: "\u2658", slot: 3, c: "var(--text-1)", glow: false, s: 0.90 },
+    { g: "\u2656", slot: 4, c: "var(--text-1)", glow: false, s: 0.92 },
   ].forEach(p => {
     plate.appendChild(h("span", {
       position: "absolute",
@@ -890,17 +890,17 @@ function dioramaFirstCapture(size: number): HTMLElement {
       textShadow: p.glow
         ? "0 4px 12px rgba(127,209,168,0.7), 0 0 10px rgba(127,209,168,0.6)"
         : "0 4px 10px rgba(0,0,0,0.6)",
-      animation: p.glow ? "cp-cell-float 2.4s ease-in-out infinite" : "",
+      animation: p.glow ? "cp-cell-float 2.4s ease-in-out 1.2s infinite" : "",
     }, p.g));
   });
 
   // BLACK stash — column RIGHT of h-file, going UP (BQ at slot 0 = h1 row)
   [
     { g: "\u265b", slot: 0, c: accent,          glow: true,  s: 0.95 },
-    { g: "\u265f", slot: 1, c: "var(--text-1)", glow: false, s: 0.78 },
-    { g: "\u265d", slot: 2, c: "var(--text-1)", glow: false, s: 0.88 },
-    { g: "\u265e", slot: 3, c: "var(--text-1)", glow: false, s: 0.90 },
-    { g: "\u265c", slot: 4, c: "var(--text-1)", glow: false, s: 0.92 },
+    { g: "\u265f", slot: 1, c: "var(--text-3)", glow: false, s: 0.78 },
+    { g: "\u265d", slot: 2, c: "var(--text-3)", glow: false, s: 0.88 },
+    { g: "\u265e", slot: 3, c: "var(--text-3)", glow: false, s: 0.90 },
+    { g: "\u265c", slot: 4, c: "var(--text-3)", glow: false, s: 0.92 },
   ].forEach(p => {
     plate.appendChild(h("span", {
       position: "absolute",
@@ -910,8 +910,8 @@ function dioramaFirstCapture(size: number): HTMLElement {
       fontSize: `${cell * p.s}px`, color: p.c, lineHeight: "1",
       textShadow: p.glow
         ? "0 4px 12px rgba(127,209,168,0.7), 0 0 10px rgba(127,209,168,0.6)"
-        : "0 4px 10px rgba(0,0,0,0.6)",
-      animation: p.glow ? "cp-cell-float 2.4s ease-in-out 1.2s infinite" : "",
+        : "0 4px 6px rgba(0,0,0,0.4)",
+      animation: p.glow ? "cp-cell-float 2.4s ease-in-out infinite" : "",
     }, p.g));
   });
 
