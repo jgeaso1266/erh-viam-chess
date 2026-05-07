@@ -42,8 +42,24 @@ const COPY: Record<Scenario, CopyItem[]> = {
     { eyebrow: "Opening move", title: "A bold start.", body: "The TAPE on the right tracks every move from here." },
   ],
   "bad-state": [
-    { eyebrow: "Board mismatch", title: "Something\u2019s out of place.", body: "The camera and game state disagree. Reset the physical pieces to the starting position, then wipe my memory so we can begin again." },
-    { eyebrow: "Pieces don\u2019t match", title: "I\u2019m a little confused.", body: "What I see and what I remember don\u2019t line up. Put the pieces back to start, then wipe my state." },
+    {
+      eyebrow: "Board mismatch",
+      title: "Something\u2019s out of place.",
+      bullets: [
+        "Reset physical pieces to the starting position.",
+        "Extra promotion queens: white\u2019s near a8, black\u2019s near h1.",
+        "Then hit \u201cWipe state\u201d to clear my memory.",
+      ],
+    },
+    {
+      eyebrow: "Pieces don\u2019t match",
+      title: "I\u2019m a little confused.",
+      bullets: [
+        "Put all pieces back to their starting squares.",
+        "Spare promotion queens belong near a8 (white) and h1 (black).",
+        "Then wipe my state so we can start fresh.",
+      ],
+    },
   ],
   won: [
     { eyebrow: "Checkmate", title: "You beat me.", body: "Well played. Reset the board for a rematch \u2014 I\u2019ll go pack up the pieces myself." },
@@ -735,14 +751,23 @@ function buildStartPosDiagram(): HTMLElement {
     k: "\u265a", q: "\u265b", r: "\u265c", b: "\u265d", n: "\u265e", p: "\u265f",
   };
   const grid = h("div", {
-    width: `${size}px`, height: `${size}px`,
+    width: `${size + sq * 2}px`, height: `${size}px`,
     display: "grid",
-    gridTemplateColumns: "repeat(8, 1fr)",
+    gridTemplateColumns: `${sq}px repeat(8, 1fr) ${sq}px`,
     gridTemplateRows: "repeat(8, 1fr)",
     border: "1px solid var(--line-2)",
     flexShrink: "0",
   });
   start.forEach((row, r) => {
+    // Left graveyard column — WQ (white spare queen) at rank 8 (r === 0 = top row)
+    grid.appendChild(h("div", {
+      background: "var(--bg-1)",
+      borderRight: "1px solid var(--line-2)",
+      display: "grid", placeItems: "center",
+      fontSize: `${sq * 0.7}px`,
+      color: "var(--text-1)",
+    }, r === 0 ? "\u2655" : ""));
+
     [...row].forEach((ch, c) => {
       const light = (r + c) % 2 === 0;
       const cell = h("div", {
@@ -753,6 +778,15 @@ function buildStartPosDiagram(): HTMLElement {
       }, ch !== "." ? GLYPH[ch] ?? "" : "");
       grid.appendChild(cell);
     });
+
+    // Right graveyard column — BQ (black spare queen) at rank 1 (r === 7 = bottom row)
+    grid.appendChild(h("div", {
+      background: "var(--bg-1)",
+      borderLeft: "1px solid var(--line-2)",
+      display: "grid", placeItems: "center",
+      fontSize: `${sq * 0.7}px`,
+      color: "var(--text-2)",
+    }, r === 7 ? "\u265b" : ""));
   });
   const box = h("div", {
     display: "flex", alignItems: "center", gap: "20px",
@@ -767,11 +801,13 @@ function buildStartPosDiagram(): HTMLElement {
     letterSpacing: "0.16em", textTransform: "uppercase",
     color: "var(--text-3)", marginBottom: "8px",
   }, "Reset to this position");
-  const body = h("div", {
-    fontSize: "13px", color: "var(--text-2)", lineHeight: "1.5",
-  }, "Place all 32 pieces on their starting squares \u2014 white on ranks 1\u20132, black on 7\u20138.");
+  const body = h("div", { fontSize: "13px", color: "var(--text-2)", lineHeight: "1.5" },
+    "Place all 32 pieces on their starting squares \u2014 white on ranks 1\u20132, black on 7\u20138.");
+  const bodyPromo = h("div", { fontSize: "13px", color: "var(--text-2)", lineHeight: "1.5", marginTop: "6px" },
+    "Spare promotion queens go in the shaded corners: \u2655 near a8, \u265b near h1.");
   desc.appendChild(label);
   desc.appendChild(body);
+  desc.appendChild(bodyPromo);
   box.appendChild(grid);
   box.appendChild(desc);
   return box;
