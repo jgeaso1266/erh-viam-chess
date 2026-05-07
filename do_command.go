@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/corentings/chess/v2"
 	"github.com/mitchellh/mapstructure"
 
 	"go.viam.com/rdk/vision/viscapture"
@@ -28,6 +29,7 @@ type cmdStruct struct {
 	Undo            int
 	PlayFEN         string `mapstructure:"play-fen"`
 	BoardSnapshot bool  `mapstructure:"board-snapshot"`
+	GameEvents    bool  `mapstructure:"game-events"`
 	Auto          *bool // pointer so explicit false is distinguishable from absent
 }
 
@@ -97,6 +99,14 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 			"auto":            s.autoEnabled.Load(),
 			"captured_at_ms":  time.Now().UnixMilli(),
 		}, nil
+	}
+
+	if cmd.GameEvents {
+		theState, err := s.getGame(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return gameEventsResult(theState.game).Map(), nil
 	}
 
 	if cmd.Hover != "" {
@@ -268,6 +278,115 @@ func (s *viamChessChess) invalidateBoardCache() {
 	s.boardCache.mu.Lock()
 	defer s.boardCache.mu.Unlock()
 	s.boardCache.ready = false
+}
+
+// GameEventsResult holds the current game-state events returned by the
+// "game-events" DoCommand.
+type GameEventsResult struct {
+	// Event is the highest-priority active event: "checkmate", "stalemate",
+	// "draw", "check", or "none".
+	Event string `json:"event"`
+	// Outcome is the game result: "in_progress", "white_won", "black_won", or "draw".
+	Outcome string `json:"outcome"`
+	// Method is how the game ended, or "none" while in progress: "checkmate",
+	// "stalemate", "threefold_repetition", "fifty_move_rule",
+	// "insufficient_material", "draw_offer", or "resignation".
+	Method string `json:"method"`
+	// Turn is whose move it is: "white" or "black".
+	Turn string `json:"turn"`
+	// InCheck is true when the side to move is currently in check (non-terminal).
+	InCheck bool `json:"in_check"`
+	// IsOver is true when the game has ended.
+	IsOver bool `json:"is_over"`
+}
+
+// Map converts the result to the map[string]interface{} format required by DoCommand.
+func (r GameEventsResult) Map() map[string]interface{} {
+	return map[string]interface{}{
+		"event":    r.Event,
+		"outcome":  r.Outcome,
+		"method":   r.Method,
+		"turn":     r.Turn,
+		"in_check": r.InCheck,
+		"is_over":  r.IsOver,
+	}
+}
+
+// gameEventsResult computes the current game-state events from a chess.Game.
+// It is pure-read: no board mutations.
+func gameEventsResult(game *chess.Game) GameEventsResult {
+	outcome := game.Outcome()
+	method := game.Method()
+
+	// Detect check: the last played move carries the Check tag when it puts
+	// the opponent (the side now to move) in check.
+	inCheck := false
+	if outcome == chess.NoOutcome {
+		moves := game.Moves()
+		if len(moves) > 0 {
+			inCheck = moves[len(moves)-1].HasTag(chess.Check)
+		}
+	}
+
+	var event string
+	switch {
+	case method == chess.Checkmate:
+		event = "checkmate"
+	case method == chess.Stalemate:
+		event = "stalemate"
+	case outcome == chess.Draw:
+		event = "draw"
+	case inCheck:
+		event = "check"
+	default:
+		event = "none"
+	}
+
+	var outcomeStr string
+	switch outcome {
+	case chess.WhiteWon:
+		outcomeStr = "white_won"
+	case chess.BlackWon:
+		outcomeStr = "black_won"
+	case chess.Draw:
+		outcomeStr = "draw"
+	default:
+		outcomeStr = "in_progress"
+	}
+
+	var methodStr string
+	switch method {
+	case chess.Checkmate:
+		methodStr = "checkmate"
+	case chess.Stalemate:
+		methodStr = "stalemate"
+	case chess.ThreefoldRepetition:
+		methodStr = "threefold_repetition"
+	case chess.FiftyMoveRule:
+		methodStr = "fifty_move_rule"
+	case chess.InsufficientMaterial:
+		methodStr = "insufficient_material"
+	case chess.DrawOffer:
+		methodStr = "draw_offer"
+	case chess.Resignation:
+		methodStr = "resignation"
+	default:
+		methodStr = "none"
+	}
+
+	turn := "white"
+	if game.Position().Turn() == chess.Black {
+		turn = "black"
+	}
+
+	return GameEventsResult{
+		Event:   event,
+		Outcome: outcomeStr,
+		Method:  methodStr,
+		Turn:    turn,
+		InCheck: inCheck,
+		IsOver:  outcome != chess.NoOutcome,
+	}
 }
 
 func (s *viamChessChess) saveVideo(ctx context.Context, from, to time.Time, tags []string) {
