@@ -645,6 +645,7 @@ function applySnapshot(res: Record<string, JsonValue>) {
     rawOutcome === "white_won" ? "white-won" :
     rawOutcome === "black_won" ? "black-won" :
     rawOutcome === "draw" ? "draw" : "";
+  const snapshotInCheck = res.in_check === true;
   // FEN-derived ply count: client tape plyCount stays 0 when white+black both
   // arrive between polls (inferSingleMove returns null for multi-ply jumps).
   const fenPly = currentFen ? plyCountFromFEN(currentFen) : plyCount;
@@ -663,13 +664,13 @@ function applySnapshot(res: Record<string, JsonValue>) {
   }
 
   if (!initialLoaded) {
-    companion.onInit(fenPly, autoMode, mismatches.length, snapshotOutcome);
+    companion.onInit(fenPly, autoMode, mismatches.length, snapshotOutcome, snapshotInCheck);
     initialLoaded = true;
     document.getElementById("board-loading")?.classList.add("hidden");
   } else if (observedReset) {
     companion.onReset();
   } else {
-    companion.onSnapshot(fenPly, autoMode, mismatches.length, snapshotOutcome);
+    companion.onSnapshot(fenPly, autoMode, mismatches.length, snapshotOutcome, snapshotInCheck);
   }
 }
 
@@ -1209,6 +1210,9 @@ if (mockMode) {
   } else if (companionScenario === "first-capture") {
     companion.onInit(plyCount, autoMode, 0, "");
     companion.onFirstCapture();
+  } else if (companionScenario === "in-check") {
+    companion.onInit(plyCount, autoMode, 0, "", false);
+    companion.onSnapshot(plyCount, autoMode, 0, "", true);
   } else {
     companion.onInit(plyCount, autoMode, 0, "");
   }

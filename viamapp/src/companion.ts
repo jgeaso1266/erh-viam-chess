@@ -4,7 +4,7 @@
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type GameOutcome = "white-won" | "black-won" | "draw" | "";
-type Scenario = "welcome" | "first-move" | "first-capture" | "bad-state" | "won" | "lost" | "draw" | "long-pause";
+type Scenario = "welcome" | "first-move" | "first-capture" | "in-check" | "bad-state" | "won" | "lost" | "draw" | "long-pause";
 type Mood = "welcome" | "positive" | "neutral" | "sad" | "warn" | "idle";
 
 interface CopyItem {
@@ -40,6 +40,11 @@ const COPY: Record<Scenario, CopyItem[]> = {
     { eyebrow: "Nice", title: "You\u2019re in.", body: "Watch the TAPE on the right \u2014 that\u2019s the running record." },
     { eyebrow: "Game on", title: "And we\u2019re off.", body: "Every move shows up on the TAPE. The arm\u2019s thinking." },
     { eyebrow: "Opening move", title: "A bold start.", body: "The TAPE on the right tracks every move from here." },
+  ],
+  "in-check": [
+    { eyebrow: "Watch out", title: "You\u2019re in check.", body: "Your king is under attack. You must move out of check." },
+    { eyebrow: "Check", title: "Your king is threatened.", body: "Get your king to safety before anything else." },
+    { eyebrow: "Check", title: "In check.", body: "You\u2019ll need to address that before playing any other move." },
   ],
   "first-capture": [
     {
@@ -106,6 +111,7 @@ const MOOD: Record<Scenario, Mood> = {
   welcome: "welcome",
   "first-move": "positive",
   "first-capture": "neutral",
+  "in-check": "warn",
   "bad-state": "warn",
   won: "positive",
   lost: "sad",
@@ -117,6 +123,7 @@ const BLOCKING: Record<Scenario, boolean> = {
   welcome: true,
   "first-move": false,
   "first-capture": true,
+  "in-check": false,
   "bad-state": true,
   won: true,
   lost: true,
@@ -159,6 +166,9 @@ let firstMoveAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
 
 let firstCaptureDone = false;
 
+let inCheckActive = false;
+let inCheckAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
+
 let gameEndScenario: "won" | "lost" | "draw" | null = null;
 let gameEndDismissed = false;
 
@@ -170,6 +180,7 @@ let extPlyCount = 0;
 let extAutoMode = false;
 let extMismatchCount = 0;
 let extOutcome: GameOutcome = "";
+let extInCheck = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -179,11 +190,12 @@ export function init(callbacks: CompanionCallbacks): void {
   ensureRoot();
 }
 
-export function onInit(plyCount: number, autoMode: boolean, mismatchCount: number, outcome: GameOutcome): void {
+export function onInit(plyCount: number, autoMode: boolean, mismatchCount: number, outcome: GameOutcome, inCheck = false): void {
   extPlyCount = plyCount;
   extAutoMode = autoMode;
   extMismatchCount = mismatchCount;
   extOutcome = outcome;
+  extInCheck = inCheck;
   initialized = true;
 
   if (outcome) {
@@ -221,17 +233,19 @@ export function onInit(plyCount: number, autoMode: boolean, mismatchCount: numbe
   render();
 }
 
-export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: number, outcome: GameOutcome): void {
+export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: number, outcome: GameOutcome, inCheck = false): void {
   if (!initialized) return;
 
   const prevOutcome = extOutcome;
   const prevMismatchCount = extMismatchCount;
   const prevPlyCount = extPlyCount;
+  const prevInCheck = extInCheck;
 
   extPlyCount = plyCount;
   extAutoMode = autoMode;
   extMismatchCount = mismatchCount;
   extOutcome = outcome;
+  extInCheck = inCheck;
 
   let dirty = false;
 
@@ -280,6 +294,24 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
     }
   }
 
+  // In-check bubble: fires on rising edge (false → true), auto-dismisses in 8s
+  if (inCheck && !prevInCheck && !outcome && !(activeScenario && BLOCKING[activeScenario])) {
+    if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
+    inCheckActive = true;
+    setActiveScenario("in-check");
+    inCheckAutoDismissTimer = setTimeout(() => {
+      inCheckAutoDismissTimer = null;
+      if (activeScenario === "in-check") { activeScenario = null; inCheckActive = false; render(); }
+    }, 8_000);
+    dirty = true;
+  } else if (!inCheck && inCheckActive) {
+    // Check was resolved — dismiss immediately
+    if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
+    if (activeScenario === "in-check") { activeScenario = null; }
+    inCheckActive = false;
+    dirty = true;
+  }
+
   if (dirty) render();
 }
 
@@ -299,6 +331,11 @@ export function onMove(newPlyCount: number): void {
 
   if (activeScenario === "long-pause") {
     activeScenario = null;
+  }
+  if (activeScenario === "in-check") {
+    if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
+    activeScenario = null;
+    inCheckActive = false;
   }
 
   clearLongPauseTimer();
@@ -321,6 +358,9 @@ export function onReset(): void {
   if (welcomeReviveTimer) { clearTimeout(welcomeReviveTimer); welcomeReviveTimer = null; }
   firstMoveBubbleDone = false;
   firstCaptureDone = false;
+  if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
+  inCheckActive = false;
+  extInCheck = false;
   longPauseRateLimited = false;
   clearLongPauseTimer();
   extPlyCount = 0;
@@ -1245,6 +1285,10 @@ function buildBubble(scenario: Scenario): HTMLElement {
     activeScenario = null;
     if (scenario === "first-move") firstMoveBubbleDone = true;
     if (firstMoveAutoDismissTimer) { clearTimeout(firstMoveAutoDismissTimer); firstMoveAutoDismissTimer = null; }
+    if (scenario === "in-check") {
+      if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
+      inCheckActive = false;
+    }
     render();
   };
 
