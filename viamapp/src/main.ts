@@ -1081,6 +1081,7 @@ document.getElementById("go-n")!.addEventListener("keydown", (e) => {
 document.getElementById("auto-mode")!.addEventListener("change", async (e) => {
   const cb = e.target as HTMLInputElement;
   const next = cb.checked;
+  autoMode = next; // optimistic — prevents snapshot poll from reverting during in-flight doCommand
   try {
     await setAutoModeOnServer(next);
   } catch (err) {
