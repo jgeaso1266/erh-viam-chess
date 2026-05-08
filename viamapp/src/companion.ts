@@ -165,6 +165,7 @@ let firstMoveBubbleDone = false;
 let firstMoveAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
 
 let firstCaptureDone = false;
+let firstCapturePlyCount = -1;
 
 let inCheckActive = false;
 let inCheckAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
@@ -266,6 +267,12 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
     dirty = true;
   }
 
+  // First-capture auto-dismiss on any next move
+  if (activeScenario === "first-capture" && plyCount > firstCapturePlyCount) {
+    activeScenario = null;
+    dirty = true;
+  }
+
   // Long-pause auto-dismiss on move
   if (activeScenario === "long-pause" && plyCount > prevPlyCount) {
     activeScenario = null;
@@ -329,7 +336,7 @@ export function onMove(newPlyCount: number): void {
     startFirstMoveAutoDismiss();
   }
 
-  if (activeScenario === "first-capture" && newPlyCount % 2 === 1) {
+  if (activeScenario === "first-capture" && newPlyCount > firstCapturePlyCount) {
     activeScenario = null;
   }
   if (activeScenario === "long-pause") {
@@ -361,6 +368,7 @@ export function onReset(): void {
   if (welcomeReviveTimer) { clearTimeout(welcomeReviveTimer); welcomeReviveTimer = null; }
   firstMoveBubbleDone = false;
   firstCaptureDone = false;
+  firstCapturePlyCount = -1;
   if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
   inCheckActive = false;
   extInCheck = false;
@@ -415,6 +423,7 @@ export function onAutoToggle(enabled: boolean): void {
 export function onFirstCapture(): void {
   if (firstCaptureDone || extOutcome) return;
   firstCaptureDone = true;
+  firstCapturePlyCount = extPlyCount;
   setActiveScenario("first-capture");
   render();
 }
