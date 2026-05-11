@@ -564,6 +564,8 @@ function pushEvent(type: EvtType, label: string) {
 
 // ── Inline error popovers ──────────────────────────────────────────────────
 
+const inlineErrorTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
 function showInlineError(which: "go" | "move", msg: string) {
   const popId = which === "go" ? "go-error" : "move-error";
   const inputIds = which === "go" ? ["go-n"] : ["move-from", "move-to"];
@@ -572,10 +574,13 @@ function showInlineError(which: "go" | "move", msg: string) {
   pop.classList.remove("hidden");
   (pop.querySelector(".inline-error-msg") as HTMLElement).textContent = msg;
   inputIds.forEach((id) => document.getElementById(id)?.classList.add("error"));
+  if (inlineErrorTimers[which]) clearTimeout(inlineErrorTimers[which]);
+  inlineErrorTimers[which] = setTimeout(() => dismissInlineError(which), 10_000);
 }
 function dismissInlineError(which: "go" | "move") {
   const popId = which === "go" ? "go-error" : "move-error";
   const inputIds = which === "go" ? ["go-n"] : ["move-from", "move-to"];
+  if (inlineErrorTimers[which]) { clearTimeout(inlineErrorTimers[which]); delete inlineErrorTimers[which]; }
   document.getElementById(popId)?.classList.add("hidden");
   inputIds.forEach((id) => document.getElementById(id)?.classList.remove("error"));
 }
@@ -1138,11 +1143,10 @@ document.getElementById("auto-mode")!.addEventListener("change", async (e) => {
   }
 });
 document.getElementById("cam-toggle")!.addEventListener("click", toggleCamera);
-document.querySelectorAll(".inline-error-dismiss").forEach((b) => {
-  b.addEventListener("click", (e) => {
-    const parent = (e.currentTarget as HTMLElement).closest(".inline-error");
-    if (parent?.id === "go-error") dismissInlineError("go");
-    if (parent?.id === "move-error") dismissInlineError("move");
+document.querySelectorAll(".inline-error").forEach((pop) => {
+  pop.addEventListener("click", () => {
+    if (pop.id === "go-error") dismissInlineError("go");
+    if (pop.id === "move-error") dismissInlineError("move");
   });
 });
 (document.getElementById("go-n") as HTMLInputElement).addEventListener("input", (e) => {
