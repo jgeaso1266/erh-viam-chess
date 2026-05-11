@@ -200,16 +200,19 @@ let extInCheck = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-export function init(callbacks: CompanionCallbacks, options: CompanionOptions = {}): void {
+export function init(callbacks: CompanionCallbacks): void {
   cbs = callbacks;
+  injectStyles();
+  ensureRoot();
+}
+
+export function configure(options: CompanionOptions): void {
   if (options.badStateDelayMs      !== undefined) badStateDelayMs      = options.badStateDelayMs;
   if (options.welcomeReviveMs      !== undefined) welcomeReviveMs      = options.welcomeReviveMs;
   if (options.inCheckDismissMs     !== undefined) inCheckDismissMs     = options.inCheckDismissMs;
   if (options.firstMoveDismissMs   !== undefined) firstMoveDismissMs   = options.firstMoveDismissMs;
   if (options.longPauseTriggerMs   !== undefined) longPauseTriggerMs   = options.longPauseTriggerMs;
   if (options.longPauseRateLimitMs !== undefined) longPauseRateLimitMs = options.longPauseRateLimitMs;
-  injectStyles();
-  ensureRoot();
 }
 
 export function onInit(plyCount: number, autoMode: boolean, mismatchCount: number, outcome: GameOutcome, inCheck = false): void {

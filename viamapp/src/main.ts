@@ -1222,6 +1222,19 @@ if (mockMode) {
   }
 } else {
   connect()
+    .then(async () => {
+      try {
+        const cfg = await doCommand({ "companion-config": true });
+        companion.configure({
+          badStateDelayMs:      typeof cfg.bad_state_delay_ms === "number" ? cfg.bad_state_delay_ms : undefined,
+          welcomeReviveMs:      typeof cfg.welcome_revive_ms === "number" ? cfg.welcome_revive_ms : undefined,
+          inCheckDismissMs:     typeof cfg.in_check_dismiss_ms === "number" ? cfg.in_check_dismiss_ms : undefined,
+          firstMoveDismissMs:   typeof cfg.first_move_dismiss_ms === "number" ? cfg.first_move_dismiss_ms : undefined,
+          longPauseTriggerMs:   typeof cfg.long_pause_trigger_ms === "number" ? cfg.long_pause_trigger_ms : undefined,
+          longPauseRateLimitMs: typeof cfg.long_pause_rate_limit_ms === "number" ? cfg.long_pause_rate_limit_ms : undefined,
+        });
+      } catch {}
+    })
     .then(refreshState)
     .then(() => { startAutoRefresh(); startIdleWatch(); })
     .catch((e) => {

@@ -36,6 +36,14 @@ type ChessConfig struct {
 	// then falls back to per-call captures.
 	BoardLoopIntervalMs int `json:"board-loop-interval-ms"`
 
+	// Companion UI timing overrides (ms). Omit or set 0 to use built-in defaults.
+	CompanionBadStateDelayMs      int `json:"companion-bad-state-delay-ms,omitempty"`
+	CompanionWelcomeReviveMs      int `json:"companion-welcome-revive-ms,omitempty"`
+	CompanionInCheckDismissMs     int `json:"companion-in-check-dismiss-ms,omitempty"`
+	CompanionFirstMoveDismissMs   int `json:"companion-first-move-dismiss-ms,omitempty"`
+	CompanionLongPauseTriggerMs   int `json:"companion-long-pause-trigger-ms,omitempty"`
+	CompanionLongPauseRateLimitMs int `json:"companion-long-pause-rate-limit-ms,omitempty"`
+
 	// OnMoveTarget is the name of a generic service that receives a domain
 	// event each time the engine plays a move:
 	//   {"event": "move_made", "move": "<UCI>", "fen": "<post-FEN>", "by": "engine"}
@@ -114,6 +122,48 @@ func (cfg *ChessConfig) boardLoopInterval() time.Duration {
 		return 0
 	}
 	return time.Duration(cfg.BoardLoopIntervalMs) * time.Millisecond
+}
+
+func (cfg *ChessConfig) companionBadStateDelayMs() int {
+	if cfg.CompanionBadStateDelayMs <= 0 {
+		return 60_000
+	}
+	return cfg.CompanionBadStateDelayMs
+}
+
+func (cfg *ChessConfig) companionWelcomeReviveMs() int {
+	if cfg.CompanionWelcomeReviveMs <= 0 {
+		return 60_000
+	}
+	return cfg.CompanionWelcomeReviveMs
+}
+
+func (cfg *ChessConfig) companionInCheckDismissMs() int {
+	if cfg.CompanionInCheckDismissMs <= 0 {
+		return 8_000
+	}
+	return cfg.CompanionInCheckDismissMs
+}
+
+func (cfg *ChessConfig) companionFirstMoveDismissMs() int {
+	if cfg.CompanionFirstMoveDismissMs <= 0 {
+		return 8_000
+	}
+	return cfg.CompanionFirstMoveDismissMs
+}
+
+func (cfg *ChessConfig) companionLongPauseTriggerMs() int {
+	if cfg.CompanionLongPauseTriggerMs <= 0 {
+		return 2 * 60_000
+	}
+	return cfg.CompanionLongPauseTriggerMs
+}
+
+func (cfg *ChessConfig) companionLongPauseRateLimitMs() int {
+	if cfg.CompanionLongPauseRateLimitMs <= 0 {
+		return 4 * 60_000
+	}
+	return cfg.CompanionLongPauseRateLimitMs
 }
 
 func (cfg *ChessConfig) Validate(path string) ([]string, []string, error) {
