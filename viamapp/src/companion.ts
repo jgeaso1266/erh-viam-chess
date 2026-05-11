@@ -21,6 +21,15 @@ export interface CompanionCallbacks {
   onReset: () => void;
 }
 
+export interface CompanionOptions {
+  badStateDelayMs?: number;       // appear + revive (default 60 s)
+  welcomeReviveMs?: number;       // re-show welcome after dismiss (default 60 s)
+  inCheckDismissMs?: number;      // auto-hide in-check bubble (default 8 s)
+  firstMoveDismissMs?: number;    // auto-hide first-move bubble (default 8 s)
+  longPauseTriggerMs?: number;    // idle before long-pause modal (default 120 s)
+  longPauseRateLimitMs?: number;  // cooldown before re-triggering long-pause (default 240 s)
+}
+
 // ── Copy pools (voice: Garry, chess master) ───────────────────────────────
 
 const COPY: Record<Scenario, CopyItem[]> = {
@@ -148,6 +157,12 @@ function moodColor(mood: Mood): string {
 
 let cbs: CompanionCallbacks | null = null;
 let initialized = false;
+let badStateDelayMs      = 60_000;
+let welcomeReviveMs      = 60_000;
+let inCheckDismissMs     = 8_000;
+let firstMoveDismissMs   = 8_000;
+let longPauseTriggerMs   = 2 * 60_000;
+let longPauseRateLimitMs = 4 * 60_000;
 
 let activeScenario: Scenario | null = null;
 let activeCopy: CopyItem | null = null;
@@ -185,8 +200,14 @@ let extInCheck = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-export function init(callbacks: CompanionCallbacks): void {
+export function init(callbacks: CompanionCallbacks, options: CompanionOptions = {}): void {
   cbs = callbacks;
+  if (options.badStateDelayMs      !== undefined) badStateDelayMs      = options.badStateDelayMs;
+  if (options.welcomeReviveMs      !== undefined) welcomeReviveMs      = options.welcomeReviveMs;
+  if (options.inCheckDismissMs     !== undefined) inCheckDismissMs     = options.inCheckDismissMs;
+  if (options.firstMoveDismissMs   !== undefined) firstMoveDismissMs   = options.firstMoveDismissMs;
+  if (options.longPauseTriggerMs   !== undefined) longPauseTriggerMs   = options.longPauseTriggerMs;
+  if (options.longPauseRateLimitMs !== undefined) longPauseRateLimitMs = options.longPauseRateLimitMs;
   injectStyles();
   ensureRoot();
 }
@@ -217,7 +238,7 @@ export function onInit(plyCount: number, autoMode: boolean, mismatchCount: numbe
           scheduleBadStateRevive();
           render();
         }
-      }, 60_000);
+      }, badStateDelayMs);
     }
   } else if (mismatchCount > 0) {
     badStateAppearTimer = setTimeout(() => {
@@ -227,7 +248,7 @@ export function onInit(plyCount: number, autoMode: boolean, mismatchCount: numbe
         scheduleBadStateRevive();
         render();
       }
-    }, 60_000);
+    }, badStateDelayMs);
   }
 
   scheduleLongPause();
@@ -283,7 +304,6 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
   // Bad-state management (no game end)
   if (!outcome) {
     if (mismatchCount > 0 && activeScenario !== "bad-state" && !badStateMinimized && !badStateAppearTimer) {
-      const delay = 60_000;
       badStateAppearTimer = setTimeout(() => {
         badStateAppearTimer = null;
         if (extMismatchCount > 0 && activeScenario !== "bad-state" && !badStateMinimized) {
@@ -291,7 +311,7 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
           scheduleBadStateRevive();
           render();
         }
-      }, delay);
+      }, badStateDelayMs);
     } else if (mismatchCount === 0) {
       if (badStateAppearTimer) { clearTimeout(badStateAppearTimer); badStateAppearTimer = null; }
       if (activeScenario === "bad-state" || badStateMinimized) {
@@ -309,7 +329,7 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
     inCheckAutoDismissTimer = setTimeout(() => {
       inCheckAutoDismissTimer = null;
       if (activeScenario === "in-check") { activeScenario = null; inCheckActive = false; render(); }
-    }, 8_000);
+    }, inCheckDismissMs);
     dirty = true;
   } else if (!inCheck && inCheckActive) {
     // Check was resolved — dismiss immediately
@@ -472,7 +492,7 @@ function scheduleWelcomeRevive(): void {
       setActiveScenario("welcome");
       render();
     }
-  }, 60_000);
+  }, welcomeReviveMs);
 }
 
 function scheduleBadStateRevive(): void {
@@ -485,7 +505,7 @@ function scheduleBadStateRevive(): void {
       render();
       scheduleBadStateRevive();
     }
-  }, 60_000);
+  }, badStateDelayMs);
 }
 
 function scheduleLongPause(): void {
@@ -497,9 +517,9 @@ function scheduleLongPause(): void {
       longPauseRateLimited = true;
       setActiveScenario("long-pause");
       render();
-      setTimeout(() => { longPauseRateLimited = false; }, 4 * 60_000);
+      setTimeout(() => { longPauseRateLimited = false; }, longPauseRateLimitMs);
     }
-  }, 2 * 60_000);
+  }, longPauseTriggerMs);
 }
 
 function clearLongPauseTimer(): void {
@@ -515,7 +535,7 @@ function startFirstMoveAutoDismiss(): void {
       firstMoveBubbleDone = true;
       render();
     }
-  }, 8_000);
+  }, firstMoveDismissMs);
 }
 
 // ── Style injection ────────────────────────────────────────────────────────
