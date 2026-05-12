@@ -508,7 +508,7 @@ function scheduleBadStateRevive(): void {
       render();
       scheduleBadStateRevive();
     }
-  }, badStateDelayMs);
+  }, 5 * badStateDelayMs);
 }
 
 function scheduleLongPause(): void {
