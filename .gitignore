@@ -34,6 +34,7 @@ bin
 
 chesscli
 webapp
+cmd/cli/cli
 
 chess-debug.jpg
 chess-debug-corners.jpg
