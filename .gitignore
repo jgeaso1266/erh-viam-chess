@@ -44,6 +44,10 @@ viamapp/dist/
 viamapp/.vite/
 viamapp/src/*.js
 viamapp/vite.config.js
+halcyon/dist/
+halcyon/.vite/
+halcyon/src/*.js
+halcyon/vite.config.js
 .DS_Store
 
 # Claude Code

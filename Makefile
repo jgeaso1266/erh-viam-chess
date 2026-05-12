@@ -28,13 +28,15 @@ update:
 test:
 	go test ./...
 
-viamapp/dist/:
+.PHONY: viamapp-dist halcyon-dist
+
+viamapp-dist:
 	cd viamapp && npm run build
 
-halcyon/dist/:
+halcyon-dist:
 	cd halcyon && npm run build
 
-module.tar.gz: test meta.json $(MODULE_BINARY) viamapp/dist/ halcyon/dist/
+module.tar.gz: test meta.json $(MODULE_BINARY) viamapp-dist halcyon-dist
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif
