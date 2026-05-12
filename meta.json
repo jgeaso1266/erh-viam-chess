@@ -31,18 +31,6 @@
           "subheading": "Select your chess robot to start playing"
         }
       }
-    },
-    {
-      "name": "halcyon-demo",
-      "type": "single_machine",
-      "entrypoint": "halcyon/dist/index.html",
-      "logoPath": "static/logo.png",
-      "customizations": {
-        "machinePicker": {
-          "heading": "Play Garry",
-          "subheading": "Pick your robot to start a game"
-        }
-      }
     }
   ],
   "markdown_link": "README.md",

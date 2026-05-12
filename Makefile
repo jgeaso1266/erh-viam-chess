@@ -30,24 +30,22 @@ test:
 
 .PHONY: viamapp-dist halcyon-dist
 
-viamapp-dist:
+viamapp-dist: viamapp/*.json  viamapp/*.html viamapp/*.html viamapp/src/*.ts viamapp/src/*.css
 	cd viamapp && npm run build
 
-halcyon-dist:
+halcyon-dist: halcyon/*.json  halcyon/*.html halcyon/*.html halcyon/src/*.ts halcyon/src/*.css
 	cd halcyon && npm run build
 
-module.tar.gz: test meta.json $(MODULE_BINARY) viamapp-dist halcyon-dist
+module.tar.gz: meta.json $(MODULE_BINARY) viamapp-dist halcyon-dist
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif
-	rm -rf .module-stage
 	mkdir -p .module-stage/$(dir $(MODULE_BINARY)) .module-stage/dist .module-stage/halcyon-dist
 	cp meta.json .module-stage/
 	cp $(MODULE_BINARY) .module-stage/$(MODULE_BINARY)
 	cp -R viamapp/dist/. .module-stage/dist/
 	cp -R halcyon/dist/. .module-stage/halcyon-dist/
 	tar czf $@ -C .module-stage .
-	rm -rf .module-stage
 
 module: test module.tar.gz
 
