@@ -329,11 +329,12 @@ func (s *viamChessChess) undoMoves(ctx context.Context, n int) error {
 			var gyFrom string
 			if isWhite {
 				idx := len(curWhiteGY) - 1
-				gyFrom = fmt.Sprintf("XW%d", idx)
+				// Physical slot is slice idx + 1 (slot 0 is the spare queen).
+				gyFrom = fmt.Sprintf("XW%d", idx+1)
 				curWhiteGY = curWhiteGY[:idx]
 			} else {
 				idx := len(curBlackGY) - 1
-				gyFrom = fmt.Sprintf("XB%d", idx)
+				gyFrom = fmt.Sprintf("XB%d", idx+1)
 				curBlackGY = curBlackGY[:idx]
 			}
 			// Source is a graveyard slot, so force pickup-Z.
