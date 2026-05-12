@@ -149,7 +149,27 @@ func (s *viamChessChess) resetBoard(ctx context.Context) error {
 		}
 
 		fromStr := squareToString(from)
-		err = s.movePiece(ctx, all, nil, fromStr, squareToString(to), nil, theState.board)
+		// movePiece's default path infers grabZ/grabZTall by looking up the
+		// piece type from the board, but only when `from` is a 2-char board
+		// square. Graveyard sources ("XW{n}"/"XB{n}") fall through to plain
+		// grabZ, so a captured king or queen would be picked up at the wrong
+		// height during reset. Compute the override here from the resetState's
+		// graveyard slice and pass it explicitly. (Board-source pickups keep
+		// the default lookup — we only override for graveyard origins.)
+		pickupZOverride := 0.0
+		switch {
+		case from >= 70 && from < 85:
+			idx := int(from) - 70
+			if idx < len(theState.whiteGraveyard) && theState.whiteGraveyard[idx] >= 0 {
+				pickupZOverride = s.pickupZForPieceType(chess.Piece(theState.whiteGraveyard[idx]).Type())
+			}
+		case from >= 85:
+			idx := int(from) - 85
+			if idx < len(theState.blackGraveyard) && theState.blackGraveyard[idx] >= 0 {
+				pickupZOverride = s.pickupZForPieceType(chess.Piece(theState.blackGraveyard[idx]).Type())
+			}
+		}
+		err = s.movePieceWithPickupZ(ctx, all, nil, fromStr, squareToString(to), nil, theState.board, pickupZOverride)
 		if err != nil {
 			return err
 		}
