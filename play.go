@@ -602,12 +602,12 @@ func (s *viamChessChess) boardTick(ctx context.Context) {
 	defer s.doCommandLock.Unlock()
 
 	if err := s.goToStart(ctx); err != nil {
-		s.logger.Debugf("auto tick: goToStart failed: %v", err)
+		s.logger.Warnf("boardTick: goToStart failed (loop tick lost): %v", err)
 		return
 	}
 	all, err := s.pieceFinder.CaptureAllFromCamera(ctx, "", viscapture.CaptureOptions{}, nil)
 	if err != nil {
-		s.logger.Debugf("auto tick: capture failed: %v", err)
+		s.logger.Warnf("boardTick: capture failed (loop tick lost): %v", err)
 		return
 	}
 	s.populateCacheFromCapture(all)
@@ -615,11 +615,15 @@ func (s *viamChessChess) boardTick(ctx context.Context) {
 	// Detection runs regardless of auto; mid-move errors are benign.
 	m, err := s.checkPositionForMoves(ctx, all)
 	if err != nil {
-		s.logger.Debugf("board tick: detection skipped: %v", err)
+		s.logger.Warnf("boardTick: detection failed: %v", err)
+	} else if m != nil {
+		s.logger.Infof("boardTick: detected human move %s -> %s (auto=%v)", m.S1().String(), m.S2().String(), s.autoEnabled.Load())
+	} else {
+		s.logger.Debugf("boardTick: no move detected (camera matches game state)")
 	}
 
 	if cacheErr := s.refreshBoardCache(ctx, all); cacheErr != nil {
-		s.logger.Debugf("board tick: cache refresh failed: %v", cacheErr)
+		s.logger.Warnf("boardTick: cache refresh failed: %v", cacheErr)
 	}
 
 	if m == nil || !s.autoEnabled.Load() {

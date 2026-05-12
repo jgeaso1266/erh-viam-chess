@@ -31,11 +31,21 @@ test:
 viamapp/dist/:
 	cd viamapp && npm run build
 
-module.tar.gz: test meta.json $(MODULE_BINARY) viamapp/dist/
+halcyon/dist/:
+	cd halcyon && npm run build
+
+module.tar.gz: test meta.json $(MODULE_BINARY) viamapp/dist/ halcyon/dist/
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif
-	tar czf $@ meta.json $(MODULE_BINARY) -C viamapp dist
+	rm -rf .module-stage
+	mkdir -p .module-stage/$(dir $(MODULE_BINARY)) .module-stage/dist .module-stage/halcyon-dist
+	cp meta.json .module-stage/
+	cp $(MODULE_BINARY) .module-stage/$(MODULE_BINARY)
+	cp -R viamapp/dist/. .module-stage/dist/
+	cp -R halcyon/dist/. .module-stage/halcyon-dist/
+	tar czf $@ -C .module-stage .
+	rm -rf .module-stage
 
 module: test module.tar.gz
 
@@ -48,3 +58,4 @@ setup:
 		apt-get install -y nodejs; \
 	fi
 	cd viamapp && npm install
+	cd halcyon && npm install
