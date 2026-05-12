@@ -116,8 +116,6 @@ type viamChessChess struct {
 	logger logging.Logger
 	conf   *ChessConfig
 
-	cancelFunc func()
-
 	pieceFinder vision.Service
 	arm         arm.Arm
 	gripper     gripper.Gripper
@@ -154,13 +152,10 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 
 	var err error
 
-	cancelCtx, cancelFunc := context.WithCancel(context.Background())
-
 	s := &viamChessChess{
 		name:        name,
 		logger:      logger,
 		conf:        conf,
-		cancelFunc:  cancelFunc,
 		skillAdjust: 50,
 	}
 
@@ -213,11 +208,8 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 		return nil, err
 	}
 
-	go s.runCaptureThread(cancelCtx)
-
 	err = s.engine.Run(uci.CmdUCI, uci.CmdIsReady, uci.CmdUCINewGame) // TODO: not sure this is correct
 	if err != nil {
-		s.cancelFunc()
 		return nil, err
 	}
 
@@ -352,8 +344,6 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 func (s *viamChessChess) Close(ctx context.Context) error {
 	var err error
-
-	s.cancelFunc()
 
 	if s.engine != nil {
 		err = multierr.Combine(err, s.engine.Close())
@@ -952,28 +942,4 @@ func squaresSame(a, b []chess.Square) bool {
 		}
 	}
 	return true
-}
-
-func (s *viamChessChess) runCaptureThread(ctx context.Context) {
-	sessionStart := time.Now().Format("2006-01-02-15-04-05")
-	for ctx.Err() == nil {
-
-		if s.movePieceStatus.Load() > 0 {
-			err := s.doCapture(ctx, sessionStart)
-			if err != nil {
-				s.logger.Errorf("error un runJointCaptureThread: %v", err)
-			}
-		}
-
-		time.Sleep(200 * time.Millisecond)
-	}
-
-}
-
-func (s *viamChessChess) doCapture(ctx context.Context, sessionStart string) error {
-	// TODO: capture image from s.cam
-	// TODO: capture joints from s.arm
-	// TODO: store as as a step for s.doCommandCount
-
-	return nil
 }
