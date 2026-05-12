@@ -2,8 +2,10 @@ package viamchess
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"os"
+	"regexp"
 	"testing"
 
 	"github.com/golang/geo/r3"
@@ -168,4 +170,63 @@ func TestBoard13E2Pointcloud(t *testing.T) {
 	test.That(t, err, test.ShouldBeNil)
 
 	t.Log("Saved complete e2 pointcloud to data/board13_e2.pcd")
+}
+
+// TestBoardPiecesLayout auto-discovers data/board<N>_pieces.txt files written by
+// the `capture-board-pieces` CLI command, runs the piece detector against each
+// board's image and pointcloud, and asserts the detected color of every square
+// matches the saved layout.
+func TestBoardPiecesLayout(t *testing.T) {
+	entries, err := os.ReadDir("data")
+	test.That(t, err, test.ShouldBeNil)
+
+	re := regexp.MustCompile(`^board(\d+)_pieces\.txt$`)
+	var boards []string
+	for _, e := range entries {
+		m := re.FindStringSubmatch(e.Name())
+		if m == nil {
+			continue
+		}
+		boards = append(boards, "board"+m[1])
+	}
+	if len(boards) == 0 {
+		t.Skip("no board*_pieces.txt files in data/")
+	}
+
+	for _, boardName := range boards {
+		t.Run(boardName, func(t *testing.T) {
+			verifyPiecesLayout(t, boardName)
+		})
+	}
+}
+
+func verifyPiecesLayout(t *testing.T, boardName string) {
+	logger := logging.NewTestLogger(t)
+
+	input, err := rimage.ReadImageFromFile("data/" + boardName + ".jpg")
+	test.That(t, err, test.ShouldBeNil)
+
+	pc, err := pointcloud.NewFromFile("data/"+boardName+".pcd", "")
+	test.That(t, err, test.ShouldBeNil)
+
+	expected, err := ReadPiecesLayout("data/" + boardName + "_pieces.txt")
+	test.That(t, err, test.ShouldBeNil)
+
+	// Use the camera properties saved alongside the data — piece classification
+	// is sensitive to intrinsics/extrinsics via Properties.PointToPixel, so
+	// reusing the same props is what makes the test reproduce the CLI's output.
+	props, err := ReadCameraProperties("data/" + boardName + "_props.json")
+	test.That(t, err, test.ShouldBeNil)
+
+	actual, err := DetectBoardPieces(context.Background(), input, pc, props, logger)
+	test.That(t, err, test.ShouldBeNil)
+
+	for rank := 1; rank <= 8; rank++ {
+		for file := 'a'; file <= 'h'; file++ {
+			name := fmt.Sprintf("%c%d", file, rank)
+			if actual[name] != expected[name] {
+				t.Errorf("%s: expected %v, got %v", name, expected[name], actual[name])
+			}
+		}
+	}
 }
