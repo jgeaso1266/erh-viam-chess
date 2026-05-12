@@ -8,6 +8,7 @@
 *.dylib
 *~
 .DS_Store
+cli
 
 .module-stage
 
@@ -54,6 +55,8 @@ halcyon/.vite/
 halcyon/src/*.js
 halcyon/vite.config.js
 .DS_Store
+
+data/board13_e2.pcd
 
 # Claude Code
 .claude/worktrees
