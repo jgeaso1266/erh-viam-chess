@@ -35,7 +35,7 @@
     {
       "name": "halcyon-demo",
       "type": "single_machine",
-      "entrypoint": "halcyon-dist/index.html",
+      "entrypoint": "halcyon/dist/index.html",
       "logoPath": "static/logo.png",
       "customizations": {
         "machinePicker": {
