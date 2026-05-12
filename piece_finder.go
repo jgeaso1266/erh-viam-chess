@@ -485,7 +485,10 @@ func (d pcDiag3DExtra) rejectReason(colorDivGuard, minFootprintMM float64) strin
 
 // classifyPieceColor returns 0/1/2 using the guarded 3D classifier. If the 3D
 // verdict is rejected (empty band, colors diverge from srcImg, or footprint is
-// too small) it falls back to the 2D Otsu path.
+// too small) it falls back to the 2D Otsu path. The 3D mean brightness can also
+// land within a few units of the cutoff for cream/ivory pieces under shadow —
+// the verdict flips frame-to-frame in that range — so we additionally defer to
+// 2D when the 3D verdict is on the knife edge and 2D produces a confident call.
 func classifyPieceColor(pc pointcloud.PointCloud, img image.Image, rect image.Rectangle, props camera.Properties, cc classifyConfig) int {
 	d3x := pcDiagnose3D(pc, img, props, 0, cc.MinPieceSize)
 	c := d3x.color(cc.BrightnessThreshold)
@@ -495,6 +498,20 @@ func classifyPieceColor(pc pointcloud.PointCloud, img image.Image, rect image.Re
 	}
 	if c == 0 || d3x.rejectReason(cc.ColorDivergenceGuard, cc.MinTopFootprintMM) != "" {
 		return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
+	}
+
+	// Borderline 3D verdict: cream/ivory pieces with shadow on the top points
+	// can land within a few brightness units of the cutoff, where the 3D mean
+	// is dominated by which subset of points happened to project into the top
+	// band. 2D Otsu sees the full piece-vs-square contrast and is more reliable
+	// in that regime — but only when its own separation guard passes (Color !=
+	// 0 means it cleared OtsuSeparationThreshold and is not a near-empty square).
+	brightness := (d3x.TopMeanAttachedR + d3x.TopMeanAttachedG + d3x.TopMeanAttachedB) / 3.0
+	const borderlineMargin = 10.0
+	if math.Abs(brightness-cc.BrightnessThreshold) < borderlineMargin {
+		if d2 := colorFromImage2D(img, rect, cc.OtsuSeparationThreshold); d2.Color != 0 {
+			return d2.Color
+		}
 	}
 	return c
 }
