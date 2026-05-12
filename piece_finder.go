@@ -302,11 +302,7 @@ func findBoardAndPieces(ctx context.Context, srcImg image.Image, pc pointcloud.P
 		return nil, outerErr
 	}
 
-	// Phase 3: estimate piece color for each square. The 3D classifier is tried
-	// first; its verdict is guarded by a color-divergence check (pc colors must
-	// match srcImg at the projected pixels) and a footprint check (top-band
-	// points must span at least minTopFootprintMM in x and y). If the 3D path
-	// returns 0 or is rejected by the guards, fall back to Otsu on the 2D image.
+	// Phase 3: estimate piece color for each square.
 	_, span = trace.StartSpan(ctx, "PieceFinder::findBoardAndPieces::EstimateColors")
 	for i := range squares {
 		if subPcs[i].Size() == 0 {
@@ -453,6 +449,15 @@ type pcDiag3DExtra struct {
 	TopMeanImgB        float64
 	TopColorDivergence float64
 
+	// Board-surface band stats: points with z within boardBandHalfMM of the
+	// board plane, i.e. the visible square color around the piece's footprint.
+	// Used as a lighting-invariant reference for the piece-color classifier.
+	BoardCount         int
+	BoardColoredCount  int
+	BoardMeanAttachedR float64
+	BoardMeanAttachedG float64
+	BoardMeanAttachedB float64
+
 	Samples []pointSample
 }
 
@@ -485,35 +490,61 @@ func (d pcDiag3DExtra) rejectReason(colorDivGuard, minFootprintMM float64) strin
 
 // classifyPieceColor returns 0/1/2 using the guarded 3D classifier. If the 3D
 // verdict is rejected (empty band, colors diverge from srcImg, or footprint is
-// too small) it falls back to the 2D Otsu path. The 3D mean brightness can also
-// land within a few units of the cutoff for cream/ivory pieces under shadow —
-// the verdict flips frame-to-frame in that range — so we additionally defer to
-// 2D when the 3D verdict is on the knife edge and 2D produces a confident call.
+// too small) it falls back to the 2D Otsu path.
+//
+// W vs B is decided by the *relative* brightness of the piece-top points vs the
+// board-surface points within the same square, with the piece-top absolute
+// brightness as a tiebreaker when the diff is ambiguous. Pure absolute-brightness
+// cutoffs flip under dim lighting (cream pieces shift below the cutoff, glossy
+// black tops shift above) and a fixed cutoff has no single value that works
+// across captures. Comparing to the same square's own board-surface points is
+// lighting-invariant: both the piece and the board are illuminated together, so
+// the sign of the difference stays consistent — white pieces always sit higher
+// than blue squares, black pieces always sit lower than any square color. The
+// one stubborn case is a white piece on a white board square, where the piece
+// can look slightly darker than the surrounding paint; in that regime the
+// absolute brightness is still well above any black piece, so it wins the
+// tiebreaker.
 func classifyPieceColor(pc pointcloud.PointCloud, img image.Image, rect image.Rectangle, props camera.Properties, cc classifyConfig) int {
 	d3x := pcDiagnose3D(pc, img, props, 0, cc.MinPieceSize)
-	c := d3x.color(cc.BrightnessThreshold)
 
-	if c == 0 && d3x.TopCount == 0 && d3x.TotalCount > 100 {
-		return 0
+	// Empty square — lots of total points, no top band.
+	if d3x.TopColoredCount <= 10 {
+		if d3x.TotalCount > 100 {
+			return 0
+		}
+		return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
 	}
-	if c == 0 || d3x.rejectReason(cc.ColorDivergenceGuard, cc.MinTopFootprintMM) != "" {
+	// 3D rejected — colors diverge from srcImg or piece footprint too small.
+	if d3x.rejectReason(cc.ColorDivergenceGuard, cc.MinTopFootprintMM) != "" {
 		return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
 	}
 
-	// Borderline 3D verdict: cream/ivory pieces with shadow on the top points
-	// can land within a few brightness units of the cutoff, where the 3D mean
-	// is dominated by which subset of points happened to project into the top
-	// band. 2D Otsu sees the full piece-vs-square contrast and is more reliable
-	// in that regime — but only when its own separation guard passes (Color !=
-	// 0 means it cleared OtsuSeparationThreshold and is not a near-empty square).
-	brightness := (d3x.TopMeanAttachedR + d3x.TopMeanAttachedG + d3x.TopMeanAttachedB) / 3.0
-	const borderlineMargin = 10.0
-	if math.Abs(brightness-cc.BrightnessThreshold) < borderlineMargin {
-		if d2 := colorFromImage2D(img, rect, cc.OtsuSeparationThreshold); d2.Color != 0 {
-			return d2.Color
+	pieceBr := (d3x.TopMeanAttachedR + d3x.TopMeanAttachedG + d3x.TopMeanAttachedB) / 3.0
+
+	// Relative-to-board verdict. Requires enough board-band points to estimate
+	// the square's surface color; very small (~empty) boards or fully covered
+	// squares fall through to the absolute path.
+	const clearWhiteDiff = 0.0
+	const clearBlackDiff = -50.0
+	const absoluteWhiteCutoff = 100.0
+	if d3x.BoardColoredCount > 10 {
+		boardBr := (d3x.BoardMeanAttachedR + d3x.BoardMeanAttachedG + d3x.BoardMeanAttachedB) / 3.0
+		diff := pieceBr - boardBr
+		if diff > clearWhiteDiff {
+			return 1
 		}
+		if diff < clearBlackDiff {
+			return 2
+		}
+		// Ambiguous: piece roughly as bright as the board (typical for a white
+		// piece on a white square). Fall through to the absolute check.
 	}
-	return c
+
+	if pieceBr > absoluteWhiteCutoff {
+		return 1
+	}
+	return 2
 }
 
 func (d pcDiag3DExtra) asMap() map[string]interface{} {
@@ -569,9 +600,14 @@ func pcDiagnose3D(pc pointcloud.PointCloud, img image.Image, props camera.Proper
 	out.BoardPlaneZ = boardZ
 	minZCutoff := boardZ - minPieceSize
 	imgBounds := img.Bounds()
+	// Points within boardBandHalfMM of boardZ are "on the board surface" — used
+	// to estimate the visible square color around the piece for the relative
+	// W/B classifier.
+	const boardBandHalfMM = 5.0
 
 	var sumAR, sumAG, sumAB, sumIR, sumIG, sumIB, sumDiv float64
 	topColored := 0
+	var sumBoardR, sumBoardG, sumBoardB float64
 
 	pc.Iterate(0, 0, func(p r3.Vector, d pointcloud.Data) bool {
 		if p.X < out.MinX {
@@ -594,6 +630,17 @@ func pcDiagnose3D(pc pointcloud.PointCloud, img image.Image, props camera.Proper
 		}
 
 		if p.Z >= minZCutoff {
+			// Board-surface band: |z - boardZ| < boardBandHalfMM.
+			if p.Z >= boardZ-boardBandHalfMM && p.Z <= boardZ+boardBandHalfMM {
+				out.BoardCount++
+				if d != nil && d.HasColor() {
+					br, bg, bb := d.RGB255()
+					sumBoardR += float64(br)
+					sumBoardG += float64(bg)
+					sumBoardB += float64(bb)
+					out.BoardColoredCount++
+				}
+			}
 			return true
 		}
 
@@ -669,6 +716,12 @@ func pcDiagnose3D(pc pointcloud.PointCloud, img image.Image, props camera.Proper
 		out.TopMeanImgG = sumIG / float64(topColored)
 		out.TopMeanImgB = sumIB / float64(topColored)
 		out.TopColorDivergence = sumDiv / float64(topColored)
+	}
+
+	if out.BoardColoredCount > 0 {
+		out.BoardMeanAttachedR = sumBoardR / float64(out.BoardColoredCount)
+		out.BoardMeanAttachedG = sumBoardG / float64(out.BoardColoredCount)
+		out.BoardMeanAttachedB = sumBoardB / float64(out.BoardColoredCount)
 	}
 
 	if out.TopCount == 0 {
