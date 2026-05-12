@@ -45,7 +45,7 @@ endif
 	cp $(MODULE_BINARY) .module-stage/$(MODULE_BINARY)
 	cp -R viamapp/dist/. .module-stage/dist/
 	cp -R halcyon/dist/. .module-stage/halcyon-dist/
-	tar czf $@ -C .module-stage .
+	cd .module-stage && tar czf ../$@ bin dist meta.json halcyon-dist
 
 module: test module.tar.gz
 

@@ -702,7 +702,7 @@ function openOperatorSheet() {
     const grid = ev("div", { class: "operator-grid" });
     const actions = [
         {
-            label: "Reset board",
+            label: "Rescan board",
             sub: "Re-detect pieces · keep game state",
             do: () => sendCommand({ "clear-cache": true }),
         },
