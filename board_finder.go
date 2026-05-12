@@ -1,10 +1,14 @@
 package viamchess
 
 import (
+	"fmt"
 	"image"
 	"math"
+	"os"
 	"sort"
 )
+
+var debugFind = os.Getenv("DEBUG_FIND") != ""
 
 // findBoard finds the four corners of the chess board.
 // 1. Convert to grayscale
@@ -56,8 +60,8 @@ func findBoard(img image.Image) ([]image.Point, error) {
 		return defaultCorners(width, height), nil
 	}
 
-	topLine, bottomLine := findBorderPairByGrid(hLines)
-	leftLine, rightLine := findBorderPairByGrid(vLines)
+	topLine, bottomLine := findBorderPair(hLines, midX, midY, height, true)
+	leftLine, rightLine := findBorderPair(vLines, midX, midY, width, false)
 
 	topLine = refineLineLocal(topLine, sobel, width, height, 80)
 	bottomLine = refineLineLocal(bottomLine, sobel, width, height, 80)
@@ -86,6 +90,13 @@ type refinePoint struct{ x, y float64 }
 type lineWithPos struct {
 	line Line
 	pos  float64
+}
+
+type alignedLine struct {
+	gridIdx int
+	pos     float64
+	votes   int
+	theta   float64
 }
 
 // mergeByPosition merges lines within threshold distance, keeping highest-voted.
@@ -120,8 +131,13 @@ func filterIsolatedLines(lines []lineWithPos, threshold float64) []lineWithPos {
 	return result
 }
 
-// findBorderPairByGrid finds the pair of lines that best fits an 8-interval chess grid.
-func findBorderPairByGrid(lines []lineWithPos) (Line, Line) {
+// findBorderPair finds the chess board grid endpoints using a vote-weighted grid fit.
+// It hypothesizes (spacing, offset) over pairs of detected lines and various interval
+// counts between them, then scores by total votes from lines aligning to the 8-interval
+// grid. This allows extrapolation to non-detected positions when only interior lines are
+// visible (e.g., chess pieces occlude the outer row boundaries). After picking the best
+// alignment, the spacing/offset are refit by weighted least squares for sub-pixel accuracy.
+func findBorderPair(lines []lineWithPos, midX, midY, imageBound int, isHorizontal bool) (Line, Line) {
 	sort.Slice(lines, func(i, j int) bool { return lines[i].pos < lines[j].pos })
 
 	if len(lines) <= 2 {
@@ -129,48 +145,181 @@ func findBorderPairByGrid(lines []lineWithPos) (Line, Line) {
 	}
 
 	const intervals = 8
+	const posTolerance = 0.15
 
-	bestI, bestJ := 0, len(lines)-1
-	bestScore := 0
-
-	var gridVotes [intervals + 1]int
+	var bestScore float64
+	bestCombined := -math.MaxFloat64
+	var bestAligned []alignedLine
+	imageCenter := float64(imageBound) / 2
 
 	for i := range lines {
 		for j := i + 1; j < len(lines); j++ {
-			spacing := (lines[j].pos - lines[i].pos) / float64(intervals)
-			if spacing < 10 {
-				continue
-			}
+			for nij := 1; nij <= intervals; nij++ {
+				spacing := (lines[j].pos - lines[i].pos) / float64(nij)
+				if spacing < 30 {
+					continue
+				}
 
-			for g := range gridVotes {
-				gridVotes[g] = 0
-			}
+				for a := 0; a <= intervals-nij; a++ {
+					startPos := lines[i].pos - float64(a)*spacing
+					endPos := startPos + float64(intervals)*spacing
 
-			for k := range lines {
-				relPos := (lines[k].pos - lines[i].pos) / spacing
-				nearest := math.Round(relPos)
-				gridIdx := int(nearest)
-				if gridIdx >= 0 && gridIdx <= intervals &&
-					math.Abs(relPos-nearest) < 0.15 {
-					if lines[k].line.votes > gridVotes[gridIdx] {
-						gridVotes[gridIdx] = lines[k].line.votes
+					margin := spacing * 0.5
+					if startPos < -margin || endPos > float64(imageBound)+margin {
+						continue
+					}
+
+					var aligned []alignedLine
+					score := 0.0
+					for _, l := range lines {
+						relPos := (l.pos - startPos) / spacing
+						nearest := math.Round(relPos)
+						gridIdx := int(nearest)
+						relDist := math.Abs(relPos - nearest)
+						if gridIdx >= 0 && gridIdx <= intervals &&
+							relDist < posTolerance {
+							aligned = append(aligned, alignedLine{
+								gridIdx: gridIdx,
+								pos:     l.pos,
+								votes:   l.line.votes,
+								theta:   l.line.theta,
+							})
+							// Linear distance weighting: lines aligning more closely to a grid
+							// position contribute more, so a coincidental near-fit can't beat a
+							// genuine fit just by sweeping more lines into the tolerance band.
+							score += float64(l.line.votes) * (1 - relDist/posTolerance)
+						}
+					}
+
+					// Combined objective: vote score dominates, with a small centering penalty
+					// that acts as a tiebreaker. When the same set of detected lines fits the
+					// grid equally well at different offsets (e.g., labeled gridIdx 0..7 vs
+					// 1..8), the chess board is roughly centered in the image, so prefer the
+					// placement whose midpoint is closer to the image center.
+					centerOffset := math.Abs((startPos+endPos)/2 - imageCenter)
+					combined := score - 0.001*centerOffset
+
+					if combined > bestCombined {
+						bestCombined = combined
+						bestScore = score
+						bestAligned = aligned
 					}
 				}
-			}
-
-			score := 0
-			for _, v := range gridVotes {
-				score += v
-			}
-
-			if score > bestScore {
-				bestScore = score
-				bestI, bestJ = i, j
 			}
 		}
 	}
 
-	return lines[bestI].line, lines[bestJ].line
+	if len(bestAligned) < 2 {
+		return lines[0].line, lines[len(lines)-1].line
+	}
+
+	// Find detected lines at the borders (gridIdx=0 and gridIdx=intervals), if any.
+	var startBorder, endBorder *alignedLine
+	for i := range bestAligned {
+		al := &bestAligned[i]
+		if al.gridIdx == 0 && (startBorder == nil || al.votes > startBorder.votes) {
+			startBorder = al
+		}
+		if al.gridIdx == intervals && (endBorder == nil || al.votes > endBorder.votes) {
+			endBorder = al
+		}
+	}
+
+	// If both borders are directly detected, return them unchanged (preserves the prior
+	// algorithm's behavior on well-detected boards).
+	if startBorder != nil && endBorder != nil {
+		return makeBorderLine(startBorder.pos, startBorder.theta, midX, midY, isHorizontal, startBorder.votes),
+			makeBorderLine(endBorder.pos, endBorder.theta, midX, midY, isHorizontal, endBorder.votes)
+	}
+
+	// At least one border is missing: refit spacing/offset by weighted least squares,
+	// then extrapolate the missing border.
+	var sumW, sumX, sumY, sumXX, sumXY float64
+	for _, al := range bestAligned {
+		w := float64(al.votes)
+		x := float64(al.gridIdx)
+		sumW += w
+		sumX += w * x
+		sumY += w * al.pos
+		sumXX += w * x * x
+		sumXY += w * x * al.pos
+	}
+
+	denom := sumW*sumXX - sumX*sumX
+
+	var spacing, startPos float64
+	if math.Abs(denom) > 1e-10 {
+		spacing = (sumW*sumXY - sumX*sumY) / denom
+		startPos = (sumY - spacing*sumX) / sumW
+	} else {
+		first := bestAligned[0]
+		last := bestAligned[len(bestAligned)-1]
+		spacing = (last.pos - first.pos) / float64(last.gridIdx-first.gridIdx)
+		startPos = first.pos - float64(first.gridIdx)*spacing
+	}
+
+	endPos := startPos + float64(intervals)*spacing
+
+	if debugFind {
+		dir := "h"
+		if !isHorizontal {
+			dir = "v"
+		}
+		fmt.Fprintf(os.Stderr, "[%s] bestScore=%.1f spacing=%.2f startPos=%.2f endPos=%.2f\n",
+			dir, bestScore, spacing, startPos, endPos)
+		for _, al := range bestAligned {
+			fmt.Fprintf(os.Stderr, "  aligned: gridIdx=%d pos=%.2f votes=%d theta=%.4f\n",
+				al.gridIdx, al.pos, al.votes, al.theta)
+		}
+	}
+
+	// Use the actual theta from a detected border when available; otherwise pick the theta
+	// of the aligned line nearest each end.
+	startTheta, endTheta := borderThetas(bestAligned, isHorizontal)
+
+	if startBorder != nil {
+		startPos = startBorder.pos
+		startTheta = startBorder.theta
+	}
+	if endBorder != nil {
+		endPos = endBorder.pos
+		endTheta = endBorder.theta
+	}
+
+	startLine := makeBorderLine(startPos, startTheta, midX, midY, isHorizontal, int(bestScore))
+	endLine := makeBorderLine(endPos, endTheta, midX, midY, isHorizontal, int(bestScore))
+	return startLine, endLine
+}
+
+// borderThetas returns the theta to use for the start and end border lines when
+// extrapolating from interior lines. The theta of the highest-voted aligned line is
+// used — typically a strong interior grid line whose orientation reflects the board's
+// perspective more accurately than a vote-weighted average (averaging across lines with
+// slightly different perspective-induced slopes attenuates the slope).
+func borderThetas(aligned []alignedLine, isHorizontal bool) (float64, float64) {
+	var bestVotes int
+	bestTheta := aligned[0].theta
+	for _, al := range aligned {
+		if al.votes > bestVotes {
+			bestVotes = al.votes
+			bestTheta = al.theta
+		}
+	}
+	_ = isHorizontal
+	return bestTheta, bestTheta
+}
+
+// makeBorderLine constructs a Line from a position (y at midX for horizontal,
+// x at midY for vertical) and a theta.
+func makeBorderLine(pos, theta float64, midX, midY int, isHorizontal bool, votes int) Line {
+	cos, sin := math.Cos(theta), math.Sin(theta)
+	var rho float64
+	if isHorizontal {
+		rho = float64(midX)*cos + pos*sin
+	} else {
+		rho = pos*cos + float64(midY)*sin
+	}
+	return Line{rho: rho, theta: theta, votes: votes}
 }
 
 func makeGrayImage(img image.Image) [][]int {
