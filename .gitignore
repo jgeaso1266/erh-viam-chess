@@ -8,6 +8,7 @@
 *.dylib
 *~
 .DS_Store
+cli
 
 # Test binary, built with `go test -c`
 *.test
