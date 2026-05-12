@@ -28,24 +28,20 @@ update:
 test:
 	go test ./...
 
-.PHONY: viamapp-dist halcyon-dist
+.PHONY: viamapp-dist
 
 viamapp-dist: viamapp/*.json  viamapp/*.html viamapp/*.html viamapp/src/*.ts viamapp/src/*.css
 	cd viamapp && npm run build
 
-halcyon-dist: halcyon/*.json  halcyon/*.html halcyon/*.html halcyon/src/*.ts halcyon/src/*.css
-	cd halcyon && npm run build
-
-module.tar.gz: meta.json $(MODULE_BINARY) viamapp-dist halcyon-dist
+module.tar.gz: meta.json $(MODULE_BINARY) viamapp-dist
 ifneq ($(VIAM_TARGET_OS), windows)
 	strip $(MODULE_BINARY)
 endif
-	mkdir -p .module-stage/$(dir $(MODULE_BINARY)) .module-stage/dist .module-stage/halcyon-dist
+	mkdir -p .module-stage/$(dir $(MODULE_BINARY)) .module-stage/dist
 	cp meta.json .module-stage/
 	cp $(MODULE_BINARY) .module-stage/$(MODULE_BINARY)
 	cp -R viamapp/dist/. .module-stage/dist/
-	cp -R halcyon/dist/. .module-stage/halcyon-dist/
-	cd .module-stage && tar czf ../$@ bin dist meta.json halcyon-dist
+	cd .module-stage && tar czf ../$@ bin dist meta.json
 
 module: test module.tar.gz
 
@@ -58,4 +54,3 @@ setup:
 		apt-get install -y nodejs; \
 	fi
 	cd viamapp && npm install
-	cd halcyon && npm install
