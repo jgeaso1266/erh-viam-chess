@@ -198,7 +198,6 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 
 	go s.runBoardLoop(cancelCtx)
 
-
 	err = s.engine.Run(uci.CmdUCI, uci.CmdIsReady, uci.CmdUCINewGame) // TODO: not sure this is correct
 	if err != nil {
 		return nil, err
