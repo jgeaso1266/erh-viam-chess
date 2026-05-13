@@ -534,6 +534,11 @@ func pcDiagnose3D(pc pointcloud.PointCloud, img image.Image, props camera.Proper
 
 	var sumAR, sumAG, sumAB, sumIR, sumIG, sumIB, sumDiv float64
 	topColored := 0
+	// Top points whose projected pixel lands inside the source image. Only these
+	// contribute to sumIR/IG/IB/sumDiv — using `topColored` as the denominator
+	// for the img-side means would underestimate them (and dilute divergence
+	// below the rejection guard) when some top points project out-of-image.
+	inImgCount := 0
 	var sumBoardR, sumBoardG, sumBoardB float64
 
 	pc.Iterate(0, 0, func(p r3.Vector, d pointcloud.Data) bool {
@@ -620,6 +625,7 @@ func pcDiagnose3D(pc pointcloud.PointCloud, img image.Image, props camera.Proper
 			sumDiv += (math.Abs(float64(pr)-float64(ir)) +
 				math.Abs(float64(pg)-float64(ig)) +
 				math.Abs(float64(pb)-float64(ib))) / 3.0
+			inImgCount++
 		}
 		topColored++
 		out.TopColoredCount++
@@ -639,10 +645,12 @@ func pcDiagnose3D(pc pointcloud.PointCloud, img image.Image, props camera.Proper
 		out.TopMeanAttachedR = sumAR / float64(topColored)
 		out.TopMeanAttachedG = sumAG / float64(topColored)
 		out.TopMeanAttachedB = sumAB / float64(topColored)
-		out.TopMeanImgR = sumIR / float64(topColored)
-		out.TopMeanImgG = sumIG / float64(topColored)
-		out.TopMeanImgB = sumIB / float64(topColored)
-		out.TopColorDivergence = sumDiv / float64(topColored)
+	}
+	if inImgCount > 0 {
+		out.TopMeanImgR = sumIR / float64(inImgCount)
+		out.TopMeanImgG = sumIG / float64(inImgCount)
+		out.TopMeanImgB = sumIB / float64(inImgCount)
+		out.TopColorDivergence = sumDiv / float64(inImgCount)
 	}
 
 	if out.BoardColoredCount > 0 {

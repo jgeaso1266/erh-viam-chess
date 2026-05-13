@@ -7,7 +7,6 @@ import (
 	"github.com/golang/geo/r3"
 
 	viz "go.viam.com/rdk/vision"
-	"go.viam.com/rdk/vision/objectdetection"
 	"go.viam.com/rdk/vision/viscapture"
 )
 
@@ -15,15 +14,6 @@ func (s *viamChessChess) findObject(data viscapture.VisCapture, pos string) *viz
 	for _, o := range data.Objects {
 		if strings.HasPrefix(o.Geometry.Label(), pos) {
 			return o
-		}
-	}
-	return nil
-}
-
-func (s *viamChessChess) findDetection(data viscapture.VisCapture, pos string) objectdetection.Detection {
-	for _, d := range data.Detections {
-		if strings.HasPrefix(d.Label(), pos) {
-			return d
 		}
 	}
 	return nil
