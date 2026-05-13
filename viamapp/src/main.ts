@@ -836,7 +836,6 @@ function setIdle(idle: boolean) {
 function recordActivity() {
   lastActivityAt = Date.now();
   if (idleMode) setIdle(false);
-  companion.onActivity();
 }
 
 function startIdleWatch() {
@@ -1203,9 +1202,6 @@ if (mockMode) {
   } else if (companionScenario === "bad-state") {
     companion.onInit(plyCount, autoMode, 4, "");
     companion.forceScenario("bad-state");
-  } else if (companionScenario === "long-pause") {
-    companion.onInit(plyCount, autoMode, 0, "");
-    companion.forceScenario("long-pause");
   } else if (companionScenario === "welcome") {
     companion.onInit(0, false, 0, "");
   } else if (companionScenario === "first-move") {
@@ -1230,8 +1226,6 @@ if (mockMode) {
           welcomeReviveMs:      typeof cfg.welcome_revive_ms === "number" ? cfg.welcome_revive_ms : undefined,
           inCheckDismissMs:     typeof cfg.in_check_dismiss_ms === "number" ? cfg.in_check_dismiss_ms : undefined,
           firstMoveDismissMs:   typeof cfg.first_move_dismiss_ms === "number" ? cfg.first_move_dismiss_ms : undefined,
-          longPauseTriggerMs:   typeof cfg.long_pause_trigger_ms === "number" ? cfg.long_pause_trigger_ms : undefined,
-          longPauseRateLimitMs: typeof cfg.long_pause_rate_limit_ms === "number" ? cfg.long_pause_rate_limit_ms : undefined,
         });
       } catch {}
     })
