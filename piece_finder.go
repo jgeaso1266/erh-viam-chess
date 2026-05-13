@@ -508,43 +508,47 @@ func (d pcDiag3DExtra) rejectReason(colorDivGuard, minFootprintMM float64) strin
 func classifyPieceColor(pc pointcloud.PointCloud, img image.Image, rect image.Rectangle, props camera.Properties, cc classifyConfig) int {
 	d3x := pcDiagnose3D(pc, img, props, 0, cc.MinPieceSize)
 
-	// Empty square — lots of total points, no top band.
-	if d3x.TopColoredCount <= 10 {
-		if d3x.TotalCount > 100 {
-			return 0
+	// Color-divergence rejection: pc-attached colors disagree with srcImg
+	// pixels at the projected coordinates. This signals a bad alignment, so
+	// the 3D color verdict can't be trusted — defer to 2D entirely.
+	if d3x.TopColoredCount > 0 && d3x.TopColorDivergence > cc.ColorDivergenceGuard {
+		return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
+	}
+
+	// Some 3D piece points — trust the relative-to-board 3D verdict. Footprint
+	// rejection used to send these to 2D, but a dim capture often leaves only
+	// 10-40 top points with a sub-5mm footprint (board20 c1/d1/f8) where the
+	// 3D color is still a far better signal than 2D Otsu in dim conditions.
+	if d3x.TopColoredCount > 5 {
+		pieceBr := (d3x.TopMeanAttachedR + d3x.TopMeanAttachedG + d3x.TopMeanAttachedB) / 3.0
+		const clearWhiteDiff = 0.0
+		const clearBlackDiff = -50.0
+		const absoluteWhiteCutoff = 100.0
+		if d3x.BoardColoredCount > 10 {
+			boardBr := (d3x.BoardMeanAttachedR + d3x.BoardMeanAttachedG + d3x.BoardMeanAttachedB) / 3.0
+			diff := pieceBr - boardBr
+			if diff > clearWhiteDiff {
+				return 1
+			}
+			if diff < clearBlackDiff {
+				return 2
+			}
+			// Ambiguous diff (piece roughly as bright as the board — typical
+			// for a white piece on a white square). Fall through to absolute.
 		}
-		return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
-	}
-	// 3D rejected — colors diverge from srcImg or piece footprint too small.
-	if d3x.rejectReason(cc.ColorDivergenceGuard, cc.MinTopFootprintMM) != "" {
-		return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
-	}
-
-	pieceBr := (d3x.TopMeanAttachedR + d3x.TopMeanAttachedG + d3x.TopMeanAttachedB) / 3.0
-
-	// Relative-to-board verdict. Requires enough board-band points to estimate
-	// the square's surface color; very small (~empty) boards or fully covered
-	// squares fall through to the absolute path.
-	const clearWhiteDiff = 0.0
-	const clearBlackDiff = -50.0
-	const absoluteWhiteCutoff = 100.0
-	if d3x.BoardColoredCount > 10 {
-		boardBr := (d3x.BoardMeanAttachedR + d3x.BoardMeanAttachedG + d3x.BoardMeanAttachedB) / 3.0
-		diff := pieceBr - boardBr
-		if diff > clearWhiteDiff {
+		if pieceBr > absoluteWhiteCutoff {
 			return 1
 		}
-		if diff < clearBlackDiff {
-			return 2
-		}
-		// Ambiguous: piece roughly as bright as the board (typical for a white
-		// piece on a white square). Fall through to the absolute check.
+		return 2
 	}
 
-	if pieceBr > absoluteWhiteCutoff {
-		return 1
+	// No 3D piece signal at all. With many board-surface points this is a
+	// genuine empty square; otherwise the depth sensor wholly failed in this
+	// region and Otsu 2D is the best we can do.
+	if d3x.TotalCount > 100 {
+		return 0
 	}
-	return 2
+	return colorFromImage2D(img, rect, cc.OtsuSeparationThreshold).Color
 }
 
 func (d pcDiag3DExtra) asMap() map[string]interface{} {
