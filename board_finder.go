@@ -25,7 +25,14 @@ func findBoard(img image.Image) ([]image.Point, error) {
 	gray := makeGrayImage(img)
 	sobel := sobelEdgeDetection(gray, width, height)
 
-	lines := houghLineDetection(sobel, width, height, 90)
+	// Vote threshold default of 100 works for normal captures but excludes all
+	// lines from dim captures (board20: top accumulator vote was 63). Try
+	// strict first, fall back to permissive — the downstream merge/filter and
+	// 8-interval grid fit still pick the right pair from the noisier output.
+	lines := houghLineDetection(sobel, width, height, 90, 100)
+	if len(lines) < 4 {
+		lines = houghLineDetection(sobel, width, height, 40, 30)
+	}
 	if len(lines) < 4 {
 		return defaultCorners(width, height), nil
 	}
@@ -393,7 +400,9 @@ func sobelEdgeDetection(gray [][]int, width, height int) sobelResult {
 }
 
 // houghLineDetection detects lines using gradient-directed Hough transform.
-func houghLineDetection(sobel sobelResult, width, height int, edgeThreshold int) []Line {
+// voteThreshold is the minimum accumulator value for a line to be considered;
+// lines below this are discarded entirely.
+func houghLineDetection(sobel sobelResult, width, height, edgeThreshold, voteThreshold int) []Line {
 	edges := sobel.magnitude
 	maxRho := int(math.Sqrt(float64(width*width + height*height)))
 	numThetas := 720
@@ -441,7 +450,6 @@ func houghLineDetection(sobel sobelResult, width, height int, edgeThreshold int)
 	}
 
 	var lines []Line
-	voteThreshold := 100
 
 	for rhoIdx := range 2*maxRho + 1 {
 		for t := range numThetas {

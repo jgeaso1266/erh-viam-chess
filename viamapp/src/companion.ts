@@ -4,8 +4,8 @@
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type GameOutcome = "white-won" | "black-won" | "draw" | "";
-type Scenario = "welcome" | "first-move" | "first-capture" | "in-check" | "bad-state" | "won" | "lost" | "draw" | "long-pause";
-type Mood = "welcome" | "positive" | "neutral" | "sad" | "warn" | "idle";
+type Scenario = "welcome" | "first-move" | "first-capture" | "in-check" | "bad-state" | "won" | "lost" | "draw";
+type Mood = "welcome" | "positive" | "neutral" | "sad" | "warn";
 
 interface CopyItem {
   eyebrow: string;
@@ -26,8 +26,6 @@ export interface CompanionOptions {
   welcomeReviveMs?: number;       // re-show welcome after dismiss (default 60 s)
   inCheckDismissMs?: number;      // auto-hide in-check bubble (default 8 s)
   firstMoveDismissMs?: number;    // auto-hide first-move bubble (default 8 s)
-  longPauseTriggerMs?: number;    // idle before long-pause modal (default 120 s)
-  longPauseRateLimitMs?: number;  // cooldown before re-triggering long-pause (default 240 s)
 }
 
 // ── Copy pools (voice: Garry, chess master) ───────────────────────────────
@@ -109,11 +107,6 @@ const COPY: Record<Scenario, CopyItem[]> = {
     { eyebrow: "Stalemate", title: "A draw.", body: "Neither of us could finish it. Reset to play again." },
     { eyebrow: "Draw", title: "Even hands.", body: "No winner this round. Reset and we\u2019ll go again." },
   ],
-  "long-pause": [
-    { eyebrow: "Still there?", title: "I\u2019ll wait.", body: "No moves for a while. Take your time." },
-    { eyebrow: "No rush", title: "Take your time.", body: "The board\u2019s yours when you\u2019re back." },
-    { eyebrow: "Quiet", title: "Hello?", body: "Let me know when you\u2019re ready to continue." },
-  ],
 };
 
 const MOOD: Record<Scenario, Mood> = {
@@ -125,7 +118,6 @@ const MOOD: Record<Scenario, Mood> = {
   won: "positive",
   lost: "sad",
   draw: "neutral",
-  "long-pause": "idle",
 };
 
 const BLOCKING: Record<Scenario, boolean> = {
@@ -137,14 +129,12 @@ const BLOCKING: Record<Scenario, boolean> = {
   won: true,
   lost: true,
   draw: true,
-  "long-pause": true,
 };
 
 function moodColor(mood: Mood): string {
   return (
     {
       welcome: "var(--accent)",
-      idle: "var(--text-3)",
       positive: "var(--accent)",
       neutral: "var(--text-2)",
       sad: "var(--text-3)",
@@ -161,8 +151,6 @@ let badStateDelayMs      = 60_000;
 let welcomeReviveMs      = 60_000;
 let inCheckDismissMs     = 8_000;
 let firstMoveDismissMs   = 8_000;
-let longPauseTriggerMs   = 2 * 60_000;
-let longPauseRateLimitMs = 4 * 60_000;
 
 let activeScenario: Scenario | null = null;
 let activeCopy: CopyItem | null = null;
@@ -188,10 +176,6 @@ let inCheckAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
 let gameEndScenario: "won" | "lost" | "draw" | null = null;
 let gameEndDismissed = false;
 
-let longPauseRateLimited = false;
-let longPauseTimer: ReturnType<typeof setTimeout> | null = null;
-
-
 let extPlyCount = 0;
 let extAutoMode = false;
 let extMismatchCount = 0;
@@ -211,8 +195,6 @@ export function configure(options: CompanionOptions): void {
   if (options.welcomeReviveMs      !== undefined) welcomeReviveMs      = options.welcomeReviveMs;
   if (options.inCheckDismissMs     !== undefined) inCheckDismissMs     = options.inCheckDismissMs;
   if (options.firstMoveDismissMs   !== undefined) firstMoveDismissMs   = options.firstMoveDismissMs;
-  if (options.longPauseTriggerMs   !== undefined) longPauseTriggerMs   = options.longPauseTriggerMs;
-  if (options.longPauseRateLimitMs !== undefined) longPauseRateLimitMs = options.longPauseRateLimitMs;
 }
 
 export function onInit(plyCount: number, autoMode: boolean, mismatchCount: number, outcome: GameOutcome, inCheck = false): void {
@@ -254,7 +236,6 @@ export function onInit(plyCount: number, autoMode: boolean, mismatchCount: numbe
     }, badStateDelayMs);
   }
 
-  scheduleLongPause();
   render();
 }
 
@@ -294,13 +275,6 @@ export function onSnapshot(plyCount: number, autoMode: boolean, mismatchCount: n
   // First-capture auto-dismiss on any next move
   if (activeScenario === "first-capture" && plyCount > firstCapturePlyCount) {
     activeScenario = null;
-    dirty = true;
-  }
-
-  // Long-pause auto-dismiss on move
-  if (activeScenario === "long-pause" && plyCount > prevPlyCount) {
-    activeScenario = null;
-    scheduleLongPause();
     dirty = true;
   }
 
@@ -362,17 +336,11 @@ export function onMove(newPlyCount: number): void {
   if (activeScenario === "first-capture" && newPlyCount > firstCapturePlyCount) {
     activeScenario = null;
   }
-  if (activeScenario === "long-pause") {
-    activeScenario = null;
-  }
   if (activeScenario === "in-check") {
     if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
     activeScenario = null;
     inCheckActive = false;
   }
-
-  clearLongPauseTimer();
-  if (newPlyCount > 0 && !extOutcome) scheduleLongPause();
 
   render();
 }
@@ -395,8 +363,6 @@ export function onReset(): void {
   if (inCheckAutoDismissTimer) { clearTimeout(inCheckAutoDismissTimer); inCheckAutoDismissTimer = null; }
   inCheckActive = false;
   extInCheck = false;
-  longPauseRateLimited = false;
-  clearLongPauseTimer();
   extPlyCount = 0;
   extOutcome = "";
   extMismatchCount = 0;
@@ -404,14 +370,6 @@ export function onReset(): void {
   setActiveScenario("welcome");
   scheduleWelcomeRevive();
   render();
-}
-
-export function onActivity(): void {
-  if (activeScenario === "long-pause") {
-    activeScenario = null;
-    scheduleLongPause();
-    render();
-  }
 }
 
 export function forceScenario(sc: string): void {
@@ -511,24 +469,6 @@ function scheduleBadStateRevive(): void {
   }, 5 * badStateDelayMs);
 }
 
-function scheduleLongPause(): void {
-  clearLongPauseTimer();
-  if (extPlyCount === 0 || extOutcome || longPauseRateLimited) return;
-  longPauseTimer = setTimeout(() => {
-    longPauseTimer = null;
-    if (extPlyCount > 0 && !extOutcome && !longPauseRateLimited) {
-      longPauseRateLimited = true;
-      setActiveScenario("long-pause");
-      render();
-      setTimeout(() => { longPauseRateLimited = false; }, longPauseRateLimitMs);
-    }
-  }, longPauseTriggerMs);
-}
-
-function clearLongPauseTimer(): void {
-  if (longPauseTimer) { clearTimeout(longPauseTimer); longPauseTimer = null; }
-}
-
 function startFirstMoveAutoDismiss(): void {
   if (firstMoveAutoDismissTimer) clearTimeout(firstMoveAutoDismissTimer);
   firstMoveAutoDismissTimer = setTimeout(() => {
@@ -581,11 +521,6 @@ function injectStyles(): void {
 @keyframes cp-float {
   0%, 100% { transform: translateX(-50%) translateY(0px); }
   50%      { transform: translateX(-50%) translateY(-6px); }
-}
-@keyframes cp-drift {
-  0%   { transform: translateY(8px)  rotate(-4deg); opacity: 0.2; }
-  50%  {                                            opacity: 0.8; }
-  100% { transform: translateY(-12px) rotate(8deg); opacity: 0; }
 }
 @keyframes cp-scan {
   0%   { transform: translateY(0);    opacity: 0; }
@@ -811,30 +746,6 @@ function dioramaDraw(size: number, color: string): HTMLElement {
   return wrap;
 }
 
-function dioramaPause(size: number, color: string): HTMLElement {
-  const wrap = h("div", { position: "relative", width: `${size}px`, height: `${size}px` });
-  [
-    { top: "14%", left: "60%", s: 0.10, d: 0   },
-    { top: "24%", left: "70%", s: 0.13, d: 0.5 },
-    { top: "36%", left: "78%", s: 0.16, d: 1.0 },
-  ].forEach(p => {
-    wrap.appendChild(h("span", {
-      position: "absolute", top: p.top, left: p.left,
-      fontSize: `${size * p.s}px`, color: "var(--text-2)",
-      fontFamily: "var(--font-display)", fontWeight: "600",
-      fontStyle: "italic", opacity: "0.7",
-      animation: `cp-drift 3s ease-in-out ${p.d}s infinite`,
-    }, "z"));
-  });
-  wrap.appendChild(h("span", {
-    position: "absolute", top: "54%", left: "46%",
-    transform: "translate(-50%, -50%) rotate(18deg)",
-    fontSize: `${size * 0.62}px`, color,
-    textShadow: "0 10px 30px rgba(0,0,0,0.5)",
-  }, "\u265e"));
-  return wrap;
-}
-
 function dioramaFirstCapture(size: number): HTMLElement {
   const accent = "var(--accent)";
   const boardW = size * 0.72;
@@ -973,7 +884,6 @@ function getDiorama(scenario: Scenario, size: number, color: string): HTMLElemen
     case "won":           return dioramaWon(size, color);
     case "lost":          return dioramaLost(size, color);
     case "draw":          return dioramaDraw(size, color);
-    case "long-pause":    return dioramaPause(size, color);
     default:              return null;
   }
 }
@@ -1109,9 +1019,6 @@ function buildActions(scenario: Scenario, onDismissOrMinimize: () => void): HTML
     case "draw":
       addBtn("Reset board", true, () => cbs?.onReset());
       addBtn("Close", false, onDismissOrMinimize);
-      break;
-    case "long-pause":
-      addBtn("I\u2019m back", true, onDismissOrMinimize);
       break;
     default:
       break;

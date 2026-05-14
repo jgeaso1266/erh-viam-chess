@@ -28,11 +28,11 @@ type cmdStruct struct {
 	ClearCache      bool `mapstructure:"clear-cache"`
 	Undo            int
 	PlayFEN         string `mapstructure:"play-fen"`
-	BoardSnapshot   bool `mapstructure:"board-snapshot"`
-	GameEvents      bool `mapstructure:"game-events"`
-	CompanionConfig bool `mapstructure:"companion-config"`
-	Auto          *bool // pointer so explicit false is distinguishable from absent
-	SetAnnounce   *bool `mapstructure:"set-announce"` // pointer so explicit false is distinguishable from absent
+	BoardSnapshot   bool   `mapstructure:"board-snapshot"`
+	GameEvents      bool   `mapstructure:"game-events"`
+	CompanionConfig bool   `mapstructure:"companion-config"`
+	Auto            *bool  // pointer so explicit false is distinguishable from absent
+	SetAnnounce     *bool  `mapstructure:"set-announce"` // pointer so explicit false is distinguishable from absent
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -156,12 +156,10 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 
 	if cmd.CompanionConfig {
 		return map[string]interface{}{
-			"bad_state_delay_ms":        s.conf.companionBadStateDelayMs(),
-			"welcome_revive_ms":         s.conf.companionWelcomeReviveMs(),
-			"in_check_dismiss_ms":       s.conf.companionInCheckDismissMs(),
-			"first_move_dismiss_ms":     s.conf.companionFirstMoveDismissMs(),
-			"long_pause_trigger_ms":     s.conf.companionLongPauseTriggerMs(),
-			"long_pause_rate_limit_ms":  s.conf.companionLongPauseRateLimitMs(),
+			"bad_state_delay_ms":    s.conf.companionBadStateDelayMs(),
+			"welcome_revive_ms":     s.conf.companionWelcomeReviveMs(),
+			"in_check_dismiss_ms":   s.conf.companionInCheckDismissMs(),
+			"first_move_dismiss_ms": s.conf.companionFirstMoveDismissMs(),
 		}, nil
 	}
 

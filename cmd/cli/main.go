@@ -73,6 +73,10 @@ func realMain() error {
 		return captureBoard(ctx, deps, logger)
 	}
 
+	if *cmd == "capture-board-pieces" {
+		return captureBoardWithPieces(ctx, deps, logger)
+	}
+
 	if *cmd == "piece-finder" {
 		pf, err := viamchess.NewPieceFinder(ctx, deps, generic.Named("foo"), &viamchess.PieceFinderConfig{Input: "cam"}, logger)
 		if err != nil {
@@ -321,6 +325,102 @@ func nextBoardNumber(dataDir string) (int, error) {
 		}
 	}
 	return maxN + 1, nil
+}
+
+// captureBoardWithPieces captures the next board image + pointcloud, runs the
+// board-finder for corners and the piece detector for square contents, saves the
+// captures as data/boardNN.jpg / .pcd, writes a layout to data/boardNN_pieces.txt,
+// and appends a corner test case. The piece layout is auto-picked up by the
+// TestBoardPiecesLayout test, so no piece-test-file edit is needed.
+func captureBoardWithPieces(ctx context.Context, deps resource.Dependencies, logger logging.Logger) error {
+	cam, err := camera.FromProvider(deps, "cam")
+	if err != nil {
+		return fmt.Errorf("get camera: %w", err)
+	}
+
+	props, err := cam.Properties(ctx)
+	if err != nil {
+		return fmt.Errorf("camera Properties: %w", err)
+	}
+
+	ni, _, err := cam.Images(ctx, nil, nil)
+	if err != nil {
+		return fmt.Errorf("camera Images: %w", err)
+	}
+	if len(ni) == 0 {
+		return fmt.Errorf("camera returned no images")
+	}
+	img, err := ni[0].Image(ctx)
+	if err != nil {
+		return fmt.Errorf("decode image: %w", err)
+	}
+
+	pc, err := cam.NextPointCloud(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("camera NextPointCloud: %w", err)
+	}
+
+	const dataDir = "data"
+	const testFile = "board_finder_test.go"
+	const defaultTolerance = 3.5
+
+	num, err := nextBoardNumber(dataDir)
+	if err != nil {
+		return err
+	}
+
+	imagePath := fmt.Sprintf("%s/board%d.jpg", dataDir, num)
+	if err := rimage.WriteImageToFile(imagePath, img); err != nil {
+		return fmt.Errorf("save %s: %w", imagePath, err)
+	}
+	logger.Infof("saved %s", imagePath)
+
+	pcdPath := fmt.Sprintf("%s/board%d.pcd", dataDir, num)
+	pcdFile, err := os.Create(pcdPath)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", pcdPath, err)
+	}
+	if err := pointcloud.ToPCD(pc, pcdFile, pointcloud.PCDBinary); err != nil {
+		pcdFile.Close()
+		return fmt.Errorf("save %s: %w", pcdPath, err)
+	}
+	if err := pcdFile.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", pcdPath, err)
+	}
+	logger.Infof("saved %s", pcdPath)
+
+	corners, err := viamchess.FindBoard(img)
+	if err != nil {
+		return fmt.Errorf("FindBoard: %w", err)
+	}
+	if len(corners) != 4 {
+		return fmt.Errorf("FindBoard returned %d corners, expected 4", len(corners))
+	}
+	logger.Infof("corners: TL=%v TR=%v BR=%v BL=%v",
+		corners[0], corners[1], corners[2], corners[3])
+
+	propsPath := fmt.Sprintf("%s/board%d_props.json", dataDir, num)
+	if err := viamchess.WriteCameraProperties(propsPath, props); err != nil {
+		return fmt.Errorf("save %s: %w", propsPath, err)
+	}
+	logger.Infof("saved %s", propsPath)
+
+	pieces, err := viamchess.DetectBoardPieces(ctx, img, pc, props, logger)
+	if err != nil {
+		return fmt.Errorf("DetectBoardPieces: %w", err)
+	}
+
+	piecesPath := fmt.Sprintf("%s/board%d_pieces.txt", dataDir, num)
+	if err := viamchess.WritePiecesLayout(piecesPath, pieces); err != nil {
+		return fmt.Errorf("save %s: %w", piecesPath, err)
+	}
+	logger.Infof("saved %s", piecesPath)
+
+	if err := appendBoardTestCase(testFile, num, corners, defaultTolerance); err != nil {
+		return fmt.Errorf("update %s: %w", testFile, err)
+	}
+	logger.Infof("appended board%d corner test case to %s", num, testFile)
+	return nil
 }
 
 // appendBoardTestCase inserts a new {inputFile, expectedCorners, tolerance} entry
