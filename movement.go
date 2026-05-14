@@ -3,6 +3,7 @@ package viamchess
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -211,6 +212,11 @@ func (s *viamChessChess) movePieceWithPickupZ(ctx context.Context, data viscaptu
 			return err
 		}
 
+		// Let the gripper mechanically open before lifting. Without this, the
+		// next pickup can start while get_gripper still reports the open value,
+		// fooling myGrab's stable-poll into exiting before the close completes.
+		time.Sleep(100 * time.Millisecond)
+
 		err = s.moveGripper(ctx, r3.Vector{X: destXY.X, Y: destXY.Y, Z: safeZ})
 		if err != nil {
 			return err
@@ -289,22 +295,55 @@ func (s *viamChessChess) myGrab(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	time.Sleep(300 * time.Millisecond)
+	// gripper.Grab can return before motion has mechanically settled; lifting
+	// mid-close drops the piece. Poll position until one stable read AFTER
+	// motion has been observed, so a stale/cached open-position reading right
+	// after a recent move_gripper command can't satisfy stability before the
+	// close has started. If we never observe motion (Grab actually waited for
+	// settle), exit after a short grace rather than spinning out maxPolls.
+	const pollInterval = 50 * time.Millisecond
+	const stableDelta = 0.5
+	const requiredStable = 1
+	const motionGracePolls = 4
+	const maxPolls = 20
 
-	res, err := s.arm.DoCommand(ctx, map[string]interface{}{"get_gripper": true})
-	if err != nil {
-		return false, err
+	prev := math.Inf(1)
+	stable := 0
+	seenMotion := false
+	var p float64
+	for i := 0; i < maxPolls; i++ {
+		time.Sleep(pollInterval)
+		res, err := s.arm.DoCommand(ctx, map[string]interface{}{"get_gripper": true})
+		if err != nil {
+			return false, err
+		}
+		var ok bool
+		p, ok = res["gripper_position"].(float64)
+		if !ok {
+			return false, fmt.Errorf("Why is get_gripper weird %v", res)
+		}
+		delta := math.Abs(p - prev)
+		s.logger.Debugf("grab poll %d: p=%v delta=%v stable=%d seenMotion=%v", i, p, delta, stable, seenMotion)
+		if delta >= stableDelta {
+			if !math.IsInf(prev, 1) {
+				seenMotion = true
+			}
+			stable = 0
+		} else if seenMotion {
+			stable++
+			if stable >= requiredStable {
+				break
+			}
+		} else if i+1 >= motionGracePolls {
+			// No motion in 4 polls — Grab really did settle internally.
+			break
+		}
+		prev = p
 	}
-
-	p, ok := res["gripper_position"].(float64)
-	if !ok {
-		return false, fmt.Errorf("Why is get_gripper weird %v", res)
-	}
-
-	s.logger.Debugf("gripper res: %v", res)
+	s.logger.Debugf("gripper settled at %v (seenMotion=%v)", p, seenMotion)
 
 	if p < 20 && got {
-		s.logger.Warnf("grab said we got, but i think no res: %v", res)
+		s.logger.Warnf("grab said we got, but position %v says no", p)
 		return false, nil
 	}
 
