@@ -18,6 +18,12 @@ type MoveCmd struct {
 	N        int
 }
 
+type SetBoardCmd struct {
+	FEN            string   `mapstructure:"fen"`
+	WhiteGraveyard []string `mapstructure:"white_graveyard"`
+	BlackGraveyard []string `mapstructure:"black_graveyard"`
+}
+
 type cmdStruct struct {
 	Move            MoveCmd
 	Go              int
@@ -25,14 +31,15 @@ type cmdStruct struct {
 	Wipe            bool
 	Skill           float64
 	Hover           string
-	ClearCache      bool `mapstructure:"clear-cache"`
+	ClearCache      bool         `mapstructure:"clear-cache"`
 	Undo            int
-	PlayFEN         string `mapstructure:"play-fen"`
-	BoardSnapshot   bool   `mapstructure:"board-snapshot"`
-	GameEvents      bool   `mapstructure:"game-events"`
-	CompanionConfig bool   `mapstructure:"companion-config"`
-	Auto            *bool  // pointer so explicit false is distinguishable from absent
-	SetAnnounce     *bool  `mapstructure:"set-announce"` // pointer so explicit false is distinguishable from absent
+	PlayFEN         string       `mapstructure:"play-fen"`
+	BoardSnapshot   bool         `mapstructure:"board-snapshot"`
+	GameEvents      bool         `mapstructure:"game-events"`
+	CompanionConfig bool         `mapstructure:"companion-config"`
+	Auto            *bool        // pointer so explicit false is distinguishable from absent
+	SetAnnounce     *bool        `mapstructure:"set-announce"` // pointer so explicit false is distinguishable from absent
+	SetBoard        *SetBoardCmd `mapstructure:"set-board"`
 }
 
 func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interface{}) (map[string]interface{}, error) {
@@ -264,6 +271,10 @@ func (s *viamChessChess) DoCommand(ctx context.Context, cmdMap map[string]interf
 		return nil, s.resetBoard(ctx)
 	}
 
+	if cmd.SetBoard != nil {
+		return nil, s.setBoard(ctx, cmd.SetBoard)
+	}
+
 	if cmd.PlayFEN != "" {
 		return nil, s.playFENFile(ctx, cmd.PlayFEN)
 	}
@@ -444,6 +455,38 @@ func gameEventsResult(game *chess.Game) GameEventsResult {
 		InCheck: inCheck,
 		IsOver:  outcome != chess.NoOutcome,
 	}
+}
+
+func (s *viamChessChess) setBoard(ctx context.Context, cmd *SetBoardCmd) error {
+	f, err := chess.FEN(cmd.FEN)
+	if err != nil {
+		return fmt.Errorf("invalid FEN: %w", err)
+	}
+	newState := &state{
+		game:           chess.NewGame(f),
+		whiteGraveyard: make([]int, 0, len(cmd.WhiteGraveyard)),
+		blackGraveyard: make([]int, 0, len(cmd.BlackGraveyard)),
+	}
+	for _, p := range cmd.WhiteGraveyard {
+		piece, ok := parseFENPiece(p)
+		if !ok {
+			return fmt.Errorf("invalid piece %q in white graveyard", p)
+		}
+		newState.whiteGraveyard = append(newState.whiteGraveyard, int(piece))
+	}
+	for _, p := range cmd.BlackGraveyard {
+		piece, ok := parseFENPiece(p)
+		if !ok {
+			return fmt.Errorf("invalid piece %q in black graveyard", p)
+		}
+		newState.blackGraveyard = append(newState.blackGraveyard, int(piece))
+	}
+	s.clearSquareCache()
+	if err := s.saveGame(ctx, newState); err != nil {
+		return err
+	}
+	s.invalidateBoardCache()
+	return nil
 }
 
 func (s *viamChessChess) saveVideo(ctx context.Context, from, to time.Time, tags []string) {
