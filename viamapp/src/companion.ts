@@ -19,6 +19,7 @@ export interface CompanionCallbacks {
   onAutoDisable: () => Promise<void>;
   onWipe: () => void;
   onReset: () => void;
+  onSetBoard: () => void;
 }
 
 export interface CompanionOptions {
@@ -1011,7 +1012,8 @@ function buildActions(scenario: Scenario, onDismissOrMinimize: () => void): HTML
       addBtn("Got it", true, onDismissOrMinimize);
       break;
     case "bad-state":
-      addBtn("Wipe state", true, () => { cbs?.onWipe(); onDismissOrMinimize(); });
+      addBtn("Set board", true, () => { cbs?.onSetBoard(); onDismissOrMinimize(); });
+      addBtn("Wipe state", false, () => { cbs?.onWipe(); onDismissOrMinimize(); });
       addBtn("Not now", false, onDismissOrMinimize);
       break;
     case "won":

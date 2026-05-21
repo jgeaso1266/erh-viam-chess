@@ -1457,6 +1457,7 @@ companion.init({
   onAutoDisable: async () => { await setAutoModeOnServer(false); },
   onWipe: () => void cmdMaintenance("wipe", true),
   onReset: () => void cmdMaintenance("reset", true),
+  onSetBoard: openSBModal,
 });
 
 if (new URLSearchParams(window.location.search).has("compact")) {
