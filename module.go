@@ -66,6 +66,8 @@ type viamChessChess struct {
 
 	startPose *referenceframe.PoseInFrame
 
+	skillAdjust float64
+
 	engine *uci.Engine
 
 	fenFile string
