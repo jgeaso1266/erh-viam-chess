@@ -28,7 +28,9 @@ type ChessConfig struct {
 	GraveyardSpacingY float64 `json:"graveyard-spacing-y"` // mm/row, default 80
 	GraveyardZ        float64 `json:"graveyard-z"`         // mm, default 60
 	GripperOpenPos    float64 `json:"gripper-open-pos"`    // default 450
-	SkillAdjust       float64 `json:"skill-adjust"`        // default 50
+	// Difficulty sets the engine strength. Valid values: "beginner", "intermediate",
+	// "advanced", "expert", "impossible". Default "intermediate".
+	Difficulty string `json:"difficulty"`
 
 	BadDiffMaxAttempts int `json:"bad-diff-max-attempts"` // default 10
 
@@ -100,11 +102,11 @@ func (cfg *ChessConfig) gripperOpenPos() float64 {
 	return cfg.GripperOpenPos
 }
 
-func (cfg *ChessConfig) initialSkillAdjust() float64 {
-	if cfg.SkillAdjust <= 0 {
-		return 50.0
+func (cfg *ChessConfig) initialDifficulty() string {
+	if cfg.Difficulty == "" {
+		return "intermediate"
 	}
-	return cfg.SkillAdjust
+	return cfg.Difficulty
 }
 
 func (cfg *ChessConfig) badDiffMaxAttempts() int {

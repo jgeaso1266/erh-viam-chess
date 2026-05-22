@@ -90,6 +90,9 @@ let serverAuthoritative = true;
 // so it doesn't re-push the undone move into the tape as a phantom forward move.
 let suppressFenInferOnce = false;
 
+let currentScoreCP = 0;
+let currentScoreMate = 0;
+
 let selectedSq: string | null = null;
 let autoRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshInFlight = false;
@@ -266,6 +269,34 @@ function updateStatusFromMismatches() {
   const suffix = idleMode ? " · idle" : "";
   if (mismatches.length === 0) setStatus("in sync" + suffix, "ok");
   else setStatus(`${mismatches.length} diff${suffix}`, "warn");
+}
+
+// ── Eval bar ───────────────────────────────────────────────────────────────
+
+// Converts centipawns to white's fill percentage (0–100) using the same
+// sigmoid formula lichess uses so the bar feels natural and never hard-clips.
+function cpToWhitePct(cp: number, mate: number): number {
+  if (mate > 0) return 100;
+  if (mate < 0) return 0;
+  return Math.round(50 + 50 * (2 / (1 + Math.exp(-0.004 * cp)) - 1));
+}
+
+function renderEvalBar() {
+  const fill = document.getElementById("eval-bar-fill");
+  const label = document.getElementById("eval-bar-label");
+  if (!fill || !label) return;
+
+  const pct = cpToWhitePct(currentScoreCP, currentScoreMate);
+  fill.style.height = `${pct}%`;
+
+  if (currentScoreMate > 0) {
+    label.textContent = `M${currentScoreMate}`;
+  } else if (currentScoreMate < 0) {
+    label.textContent = `M${-currentScoreMate}`;
+  } else {
+    const abs = Math.abs(currentScoreCP / 100).toFixed(1);
+    label.textContent = currentScoreCP > 0 ? `+${abs}` : currentScoreCP < 0 ? `-${abs}` : "0.0";
+  }
 }
 
 // ── Board rendering ────────────────────────────────────────────────────────
@@ -645,9 +676,13 @@ function applySnapshot(res: Record<string, JsonValue>) {
       : null;
   mismatches = diffCamera(currentBoard, cameraBoard);
 
+  if (typeof res.score_cp === "number") currentScoreCP = res.score_cp as number;
+  if (typeof res.score_mate === "number") currentScoreMate = res.score_mate as number;
+
   renderBoard();
   renderMaterial();
   renderTopStatus();
+  renderEvalBar();
   updateStatusFromMismatches();
 
   // outcome from board-snapshot is now in GameEventsResult format ("white_won", "black_won",
@@ -665,6 +700,8 @@ function applySnapshot(res: Record<string, JsonValue>) {
   if (observedReset) {
     resetTape();
     lastMove = null;
+    currentScoreCP = 0;
+    currentScoreMate = 0;
     pushEvent("reset", "observed reset from another client");
     renderTape();
     renderTopStatus();
@@ -768,6 +805,8 @@ function seedMockState() {
 
   whiteGraveyard = ["P", "P", "N"];
   blackGraveyard = ["p", "b"];
+  currentScoreCP = 52;
+  currentScoreMate = 0;
   currentFen = "r1bqkb1r/1ppp1ppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 3 5";
   const parsed = parseFENPlacement(currentFen);
   currentBoard = parsed.board;
@@ -1044,6 +1083,17 @@ async function cmdDirectMoveFromInputs() {
   (document.getElementById("move-to") as HTMLInputElement).value = "";
 }
 
+async function cmdSetDifficulty(value: string | number) {
+  try {
+    await doCommand({ difficulty: value });
+    const label = typeof value === "number" ? `ELO ${value}` : value;
+    pushEvent("go", `difficulty: ${label}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    pushEvent("err", `difficulty: ${msg}`);
+  }
+}
+
 async function cmdMaintenance(id: "refresh" | "snapshot" | "cache" | "wipe" | "reset", skipConfirm = false) {
   if (id === "reset" && !skipConfirm && !confirm("Physically reset the board?")) return;
   if (id === "wipe" && !skipConfirm && !confirm("Wipe game state?")) return;
@@ -1198,6 +1248,25 @@ document.getElementById("auto-mode")!.addEventListener("change", async (e) => {
   }
 }
 document.getElementById("cam-toggle")!.addEventListener("click", toggleCamera);
+document.getElementById("difficulty-select")!.addEventListener("change", async (e) => {
+  const val = (e.target as HTMLSelectElement).value;
+  const eloInput = document.getElementById("difficulty-elo") as HTMLInputElement;
+  const btn = document.getElementById("btn-difficulty") as HTMLButtonElement;
+  const isCustom = val === "custom";
+  eloInput.classList.toggle("hidden", !isCustom);
+  btn.classList.toggle("hidden", !isCustom);
+  if (!isCustom) await cmdSetDifficulty(val);
+});
+document.getElementById("btn-difficulty")!.addEventListener("click", async () => {
+  const elo = parseInt((document.getElementById("difficulty-elo") as HTMLInputElement).value, 10);
+  if (!isNaN(elo)) await cmdSetDifficulty(elo);
+});
+document.getElementById("difficulty-elo")!.addEventListener("keydown", async (e) => {
+  if ((e as KeyboardEvent).key === "Enter") {
+    const elo = parseInt((e.target as HTMLInputElement).value, 10);
+    if (!isNaN(elo)) await cmdSetDifficulty(elo);
+  }
+});
 document.querySelectorAll(".inline-error").forEach((pop) => {
   pop.addEventListener("click", () => {
     if (pop.id === "go-error") dismissInlineError("go");
@@ -1243,6 +1312,7 @@ renderMaterial();
 renderTape();
 renderTopStatus();
 syncSkillUI();
+renderEvalBar();
 
 if (mockMode) {
   setStatus("mock", "warn");

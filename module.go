@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,8 +64,7 @@ type viamChessChess struct {
 	motion motion.Service
 	rfs    framesystem.Service
 
-	startPose   *referenceframe.PoseInFrame
-	skillAdjust float64
+	startPose *referenceframe.PoseInFrame
 
 	engine *uci.Engine
 
@@ -87,6 +87,15 @@ type viamChessChess struct {
 	// onMoveTarget receives a "move_made" domain event after every successful
 	// engine move (whether triggered by cmd.Go or auto-mode). nil = disabled.
 	onMoveTarget resource.Resource
+
+	// lastScoreCP is the most recent engine evaluation in centipawns,
+	// normalized to white-relative (positive = white ahead).
+	// Updated after every engine move; zero before the first move or when
+	// no engine is configured.
+	lastScoreCP atomic.Int32
+	// lastScoreMate is the most recent engine-detected moves-to-forced-mate,
+	// white-relative (positive = white mates, negative = black mates, 0 = none).
+	lastScoreMate atomic.Int32
 
 	// boardCache holds the last camera-derived snapshot, populated by the
 	// board loop and read by board-snapshot. Guarded by mu.
@@ -119,12 +128,11 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 	cancelCtx, cancelFunc := context.WithCancel(context.Background())
 
 	s := &viamChessChess{
-		name:        name,
-		logger:      logger,
-		conf:        conf,
-		cancelFunc:  cancelFunc,
-		skillAdjust: conf.initialSkillAdjust(),
-		squareXY:    make(map[string]r3.Vector),
+		name:       name,
+		logger:     logger,
+		conf:       conf,
+		cancelFunc: cancelFunc,
+		squareXY:   make(map[string]r3.Vector),
 	}
 
 	s.pieceFinder, err = vision.FromProvider(deps, conf.PieceFinder)
@@ -203,7 +211,80 @@ func NewChess(ctx context.Context, deps resource.Dependencies, name resource.Nam
 		return nil, err
 	}
 
+	if err := s.applyDifficulty(conf.initialDifficulty()); err != nil {
+		s.cancelFunc()
+		return nil, fmt.Errorf("applying initial difficulty: %w", err)
+	}
+
 	return s, nil
+}
+
+// applyElo sets the engine to target a specific Elo rating via UCI_LimitStrength.
+// The value is clamped to the engine's reported UCI_Elo min/max with a warning.
+func (s *viamChessChess) applyElo(elo int) error {
+	if s.engine == nil {
+		return nil
+	}
+	if opt, ok := s.engine.Options()["UCI_Elo"]; ok {
+		if min, err := strconv.Atoi(opt.Min); err == nil && elo < min {
+			s.logger.Warnf("ELO %d is below the engine minimum of %d, clamping", elo, min)
+			elo = min
+		}
+		if max, err := strconv.Atoi(opt.Max); err == nil && elo > max {
+			s.logger.Warnf("ELO %d exceeds the engine maximum of %d, clamping", elo, max)
+			elo = max
+		}
+	}
+	return s.engine.Run(
+		uci.CmdSetOption{Name: "Skill Level", Value: "20"},
+		uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "true"},
+		uci.CmdSetOption{Name: "UCI_Elo", Value: fmt.Sprintf("%d", elo)},
+	)
+}
+
+// applyDifficulty sends the appropriate UCI setoption commands to the engine.
+// Valid difficulty values: "beginner", "intermediate", "advanced", "expert", "impossible".
+func (s *viamChessChess) applyDifficulty(difficulty string) error {
+	if s.engine == nil {
+		return nil
+	}
+	switch difficulty {
+	case "beginner":
+		return s.engine.Run(
+			uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "false"},
+			uci.CmdSetOption{Name: "Skill Level", Value: "0"},
+		)
+	case "intermediate":
+		return s.engine.Run(
+			uci.CmdSetOption{Name: "Skill Level", Value: "20"},
+			uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "true"},
+			uci.CmdSetOption{Name: "UCI_Elo", Value: "1320"},
+		)
+	case "advanced":
+		return s.engine.Run(
+			uci.CmdSetOption{Name: "Skill Level", Value: "20"},
+			uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "true"},
+			uci.CmdSetOption{Name: "UCI_Elo", Value: "1800"},
+		)
+	case "expert":
+		return s.engine.Run(
+			uci.CmdSetOption{Name: "Skill Level", Value: "20"},
+			uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "true"},
+			uci.CmdSetOption{Name: "UCI_Elo", Value: "2400"},
+		)
+	case "impossible":
+		return s.engine.Run(
+			uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "false"},
+			uci.CmdSetOption{Name: "Skill Level", Value: "20"},
+		)
+	default:
+		s.logger.Warnf("unknown difficulty %q (must be one of: beginner, intermediate, advanced, expert, impossible) — defaulting to intermediate", difficulty)
+		return s.engine.Run(
+			uci.CmdSetOption{Name: "Skill Level", Value: "20"},
+			uci.CmdSetOption{Name: "UCI_LimitStrength", Value: "true"},
+			uci.CmdSetOption{Name: "UCI_Elo", Value: "1320"},
+		)
+	}
 }
 
 func (s *viamChessChess) Name() resource.Name {

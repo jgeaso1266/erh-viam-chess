@@ -129,6 +129,12 @@
         <!-- Center -->
         <main class="center-stage">
           <div class="board-wrap">
+            <div class="eval-bar-wrap">
+              <div id="eval-bar" class="eval-bar">
+                <div id="eval-bar-fill" class="eval-bar-fill"></div>
+              </div>
+              <div id="eval-bar-label" class="eval-bar-label">—</div>
+            </div>
             <div id="board" class="chess-board"></div>
             <div id="board-loading" class="board-loading">
               <div class="board-spinner"></div>
@@ -168,6 +174,23 @@
           <button id="btn-cache" class="btn btn-sm">Clear cache</button>
           <button id="btn-wipe" class="btn btn-sm danger">Wipe state</button>
           <button id="btn-reset" class="btn btn-sm danger">Reset board</button>
+        </div>
+
+        <div class="vrule"></div>
+
+        <span class="eyebrow">Settings</span>
+        <div class="maint-row settings-row">
+          <span class="eyebrow-xxs">Difficulty</span>
+          <select id="difficulty-select" class="input difficulty-select">
+            <option value="beginner">Beginner</option>
+            <option value="intermediate" selected>Intermediate</option>
+            <option value="advanced">Advanced</option>
+            <option value="expert">Expert</option>
+            <option value="impossible">Impossible</option>
+            <option value="custom">Custom ELO…</option>
+          </select>
+          <input id="difficulty-elo" class="input mono inline-input hidden" type="number" placeholder="1800" min="100" max="4000" />
+          <button id="btn-difficulty" class="btn btn-sm hidden">Set</button>
         </div>
       </footer>
     </div>
